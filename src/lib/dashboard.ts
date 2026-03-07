@@ -3,6 +3,7 @@ import type {
   DashboardItem,
   DashboardSection,
   DashboardSnapshot,
+  DashboardView,
   EntityRecord,
   FeedItemRecord,
   SourceRecord,
@@ -32,10 +33,14 @@ function toDashboardItem(args: {
     canonicalUrl: item.canonicalUrl,
     contentType: item.contentType,
     publishedAt: item.publishedAt,
+    authorName: item.authorName,
+    thumbnailUrl: item.thumbnailUrl,
+    mediaLabel: item.mediaLabel,
     isNew: item.publishedAt > viewer.lastVisitAt,
     isRead: state?.isRead ?? false,
     isSaved: state?.isSaved ?? false,
     sourceName: source?.name ?? "Unknown source",
+    sourceHandle: typeof source?.config.handle === "string" ? source.config.handle : null,
     sourceType: source?.type ?? "website",
     entityName: entity?.name ?? null,
     tags: item.tagIds.map((tagId) => tagMap.get(tagId)).filter(Boolean) as TagRecord[],
@@ -116,6 +121,14 @@ function buildSections(items: DashboardItem[]): DashboardSection[] {
   ];
 }
 
+function getFeedItemsForView(view: DashboardView, sections: DashboardSection[], items: DashboardItem[]) {
+  if (view === "all") {
+    return items;
+  }
+
+  return sections.find((section) => section.id === view)?.items ?? [];
+}
+
 export function buildDashboardSnapshot(args: {
   workspace: WorkspaceRecord;
   sources: SourceRecord[];
@@ -142,10 +155,14 @@ export function buildDashboardSnapshot(args: {
   );
 
   const filtered = filterDashboardItems(dashboardItems, args.entities, args.filters);
+  const sections = buildSections(filtered);
+  const activeView = args.filters.view ?? "all";
 
   return {
     workspace: args.workspace,
-    sections: buildSections(filtered),
+    activeView,
+    feedItems: getFeedItemsForView(activeView, sections, filtered),
+    sections,
     tags: args.tags,
     entities: args.entities,
     sources: args.sources,

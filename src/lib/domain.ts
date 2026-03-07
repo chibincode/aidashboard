@@ -22,6 +22,15 @@ export const sectionKeys = [
 ] as const;
 export type SectionKey = (typeof sectionKeys)[number];
 
+export const dashboardViews = [
+  "all",
+  "ai-ux-ui",
+  "competitor-watch",
+  "industry-signals",
+  "saved",
+] as const;
+export type DashboardView = (typeof dashboardViews)[number];
+
 export type ThemeTone = "mint" | "sand" | "ink" | "amber";
 
 export interface WorkspaceRecord {
@@ -106,6 +115,7 @@ export interface FeedItemRecord {
   fingerprint: string;
   authorName: string | null;
   thumbnailUrl: string | null;
+  mediaLabel?: string | null;
   tagIds: string[];
 }
 
@@ -127,6 +137,7 @@ export interface ViewerContext {
 }
 
 export interface DashboardFilters {
+  view?: DashboardView;
   entity?: string;
   tag?: string;
   sourceType?: SourceType;
@@ -141,10 +152,14 @@ export interface DashboardItem {
   canonicalUrl: string;
   contentType: FeedItemType;
   publishedAt: Date;
+  authorName: string | null;
+  thumbnailUrl: string | null;
+  mediaLabel?: string | null;
   isNew: boolean;
   isRead: boolean;
   isSaved: boolean;
   sourceName: string;
+  sourceHandle: string | null;
   sourceType: SourceType;
   entityName: string | null;
   tags: TagRecord[];
@@ -169,6 +184,8 @@ export interface AdminSnapshot {
 
 export interface DashboardSnapshot {
   workspace: WorkspaceRecord;
+  activeView: DashboardView;
+  feedItems: DashboardItem[];
   sections: DashboardSection[];
   tags: TagRecord[];
   entities: EntityRecord[];

@@ -39,15 +39,15 @@ export function DashboardFiltersBar({
   }
 
   return (
-    <Card className="mb-6 p-4">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+    <Card className="mb-6 border-white/65 bg-white/72 p-4 shadow-[0_12px_40px_-32px_rgba(12,23,32,0.42)]">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
             <Funnel className="size-4" />
-            Focus filters
+            Refine feed
           </div>
           <p className="mt-1 text-sm text-slate-600">
-            Slice the deck by entity, tag, source type or review state without losing section context.
+            Narrow the current tab without leaving the main reading flow.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -71,7 +71,7 @@ export function DashboardFiltersBar({
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 md:grid-cols-3">
+      <div className="mt-4 grid gap-3 lg:grid-cols-3">
         <Select
           value={filters.entity ?? ""}
           onChange={(event) => updateParam("entity", event.target.value || undefined)}
@@ -104,9 +104,9 @@ export function DashboardFiltersBar({
         </Select>
       </div>
 
-      <div className="mt-4 flex items-center gap-2 text-xs text-slate-500">
+      <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
         <Sparkles className="size-3.5" />
-        Hover a card to mark it read or pin it into Saved.
+        Save and read actions stay on each story card.
       </div>
     </Card>
   );
