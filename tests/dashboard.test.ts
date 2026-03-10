@@ -3,8 +3,8 @@ import { buildDemoDashboard } from "@/lib/demo-data";
 import { DEMO_EMAIL, DEMO_USER_ID, DEMO_WORKSPACE_ID } from "@/lib/seed";
 
 describe("dashboard projection", () => {
-  it("marks new items based on last visit and splits saved items into dedicated section", () => {
-    const snapshot = buildDemoDashboard(
+  it("marks new items based on last visit and splits saved items into dedicated section", async () => {
+    const snapshot = await buildDemoDashboard(
       {
         workspaceId: DEMO_WORKSPACE_ID,
         userId: DEMO_USER_ID,
@@ -32,8 +32,8 @@ describe("dashboard projection", () => {
     expect(savedSection?.items.map((item) => item.id)).toContain("item_nav_1");
   });
 
-  it("filters by tag and unread state", () => {
-    const snapshot = buildDemoDashboard(
+  it("filters by tag and unread state", async () => {
+    const snapshot = await buildDemoDashboard(
       {
         workspaceId: DEMO_WORKSPACE_ID,
         userId: DEMO_USER_ID,

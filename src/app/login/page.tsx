@@ -22,7 +22,6 @@ async function requestMagicLink(formData: FormData) {
 export default function LoginPage() {
   return (
     <AppShell
-      pathname="/login"
       title="Invite-only sign-in"
       subtitle="Use email login when you want this deck to run with database-backed workspaces and persistence. Demo mode remains available without setup."
     >

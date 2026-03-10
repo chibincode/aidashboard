@@ -1,5 +1,13 @@
 import type { FeedItemType, SourceRecord, SourceType, TagRuleRecord } from "@/lib/domain";
 
+export interface SocialMetrics {
+  replies?: number;
+  reposts?: number;
+  likes?: number;
+  views?: number;
+  bookmarks?: number;
+}
+
 export interface NormalizedIncomingItem {
   title: string;
   excerpt: string;
@@ -8,6 +16,8 @@ export interface NormalizedIncomingItem {
   contentType: FeedItemType;
   authorName?: string | null;
   thumbnailUrl?: string | null;
+  mediaKind?: "image" | "video" | null;
+  socialMetrics?: SocialMetrics;
   fingerprint?: string;
   tagIds?: string[];
 }

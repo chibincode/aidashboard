@@ -31,6 +31,20 @@ export const dashboardViews = [
 ] as const;
 export type DashboardView = (typeof dashboardViews)[number];
 
+export const settingsTabIds = ["sources", "entities", "tags", "rules"] as const;
+export type SettingsTabId = (typeof settingsTabIds)[number];
+
+export const settingsTabs: ReadonlyArray<{
+  id: SettingsTabId;
+  label: string;
+  href: `/admin/${SettingsTabId}`;
+}> = [
+  { id: "sources", label: "Sources", href: "/admin/sources" },
+  { id: "entities", label: "Entities", href: "/admin/entities" },
+  { id: "tags", label: "Tags", href: "/admin/tags" },
+  { id: "rules", label: "Rules", href: "/admin/rules" },
+] as const;
+
 export type ThemeTone = "mint" | "sand" | "ink" | "amber";
 
 export interface WorkspaceRecord {
@@ -115,7 +129,9 @@ export interface FeedItemRecord {
   fingerprint: string;
   authorName: string | null;
   thumbnailUrl: string | null;
+  mediaKind?: "image" | "video" | null;
   mediaLabel?: string | null;
+  socialMetrics?: SocialMetrics | null;
   tagIds: string[];
 }
 
@@ -154,6 +170,7 @@ export interface DashboardItem {
   publishedAt: Date;
   authorName: string | null;
   thumbnailUrl: string | null;
+  mediaKind?: "image" | "video" | null;
   mediaLabel?: string | null;
   isNew: boolean;
   isRead: boolean;
@@ -161,8 +178,17 @@ export interface DashboardItem {
   sourceName: string;
   sourceHandle: string | null;
   sourceType: SourceType;
+  socialMetrics?: SocialMetrics | null;
   entityName: string | null;
   tags: TagRecord[];
+}
+
+export interface SocialMetrics {
+  replies?: number;
+  reposts?: number;
+  likes?: number;
+  views?: number;
+  bookmarks?: number;
 }
 
 export interface DashboardSection {

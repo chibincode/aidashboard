@@ -35,6 +35,7 @@ function toDashboardItem(args: {
     publishedAt: item.publishedAt,
     authorName: item.authorName,
     thumbnailUrl: item.thumbnailUrl,
+    mediaKind: item.mediaKind ?? null,
     mediaLabel: item.mediaLabel,
     isNew: item.publishedAt > viewer.lastVisitAt,
     isRead: state?.isRead ?? false,
@@ -42,6 +43,7 @@ function toDashboardItem(args: {
     sourceName: source?.name ?? "Unknown source",
     sourceHandle: typeof source?.config.handle === "string" ? source.config.handle : null,
     sourceType: source?.type ?? "website",
+    socialMetrics: item.socialMetrics ?? null,
     entityName: entity?.name ?? null,
     tags: item.tagIds.map((tagId) => tagMap.get(tagId)).filter(Boolean) as TagRecord[],
   };

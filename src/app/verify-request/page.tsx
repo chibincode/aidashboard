@@ -5,7 +5,6 @@ import { Card } from "@/components/ui/card";
 export default function VerifyRequestPage() {
   return (
     <AppShell
-      pathname="/verify-request"
       title="Check your inbox"
       subtitle="We sent a sign-in link to your email. Open it on the same browser to attach your workspace membership and continue."
     >

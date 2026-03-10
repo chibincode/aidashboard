@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { Manrope, Space_Grotesk } from "next/font/google";
-import { appConfig } from "@/lib/env";
 import "./globals.css";
 
 const bodyFont = Manrope({
@@ -14,9 +13,8 @@ const displayFont = Space_Grotesk({
 });
 
 export const metadata: Metadata = {
-  title: `${appConfig.name} | AI & competitor watchfloor`,
-  description:
-    "Signal Deck aggregates AI UX/UI, logistics navigation, and competitor movement into one decision-oriented workbench.",
+  title: "boyce dashboard",
+  description: "A compact feed for sources, signals, and watchlist settings.",
 };
 
 export default function RootLayout({

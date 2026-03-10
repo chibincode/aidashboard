@@ -12,7 +12,13 @@ const tabs: Array<{ value: DashboardView; label: string }> = [
   { value: "saved", label: "Saved" },
 ];
 
-export function DashboardViewTabs({ activeView }: { activeView: DashboardView }) {
+export function DashboardViewTabs({
+  activeView,
+  layout = "row",
+}: {
+  activeView: DashboardView;
+  layout?: "row" | "sidebar";
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -28,6 +34,33 @@ export function DashboardViewTabs({ activeView }: { activeView: DashboardView })
 
     const query = params.toString();
     router.push(query ? `${pathname}?${query}` : pathname);
+  }
+
+  if (layout === "sidebar") {
+    return (
+      <div>
+        <div className="px-2 pb-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">Categories</p>
+        </div>
+        <div className="flex flex-col gap-1">
+          {tabs.map((tab) => (
+            <button
+              key={tab.value}
+              type="button"
+              onClick={() => setView(tab.value)}
+              className={cn(
+                "rounded-[18px] px-3 py-3 text-left text-sm font-semibold transition",
+                activeView === tab.value
+                  ? "bg-slate-950 text-white shadow-[0_10px_24px_-18px_rgba(15,23,42,0.55)]"
+                  : "bg-transparent text-slate-700 hover:bg-black/[0.035]",
+              )}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
   }
 
   return (

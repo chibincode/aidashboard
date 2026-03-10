@@ -104,9 +104,11 @@ export async function createRuleAction(formData: FormData) {
 export async function toggleRuleAction(formData: FormData) {
   await toggleRuleRecord(String(formData.get("id")), formData.get("isActive") === "true");
   revalidatePath("/admin/rules");
+  revalidatePath("/");
 }
 
 export async function deleteRuleAction(formData: FormData) {
   await deleteRuleRecord(String(formData.get("id")));
   revalidatePath("/admin/rules");
+  revalidatePath("/");
 }

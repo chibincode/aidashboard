@@ -3,9 +3,15 @@ import { DashboardFiltersBar } from "@/components/dashboard/filters-bar";
 import { FeedCard } from "@/components/dashboard/feed-card";
 import { DashboardViewTabs } from "@/components/dashboard/view-tabs";
 import { LastVisitBeacon } from "@/components/dashboard/last-visit-beacon";
-import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { getDashboardSnapshot } from "@/lib/repositories/app-repository";
+import {
+  EntitiesSettingsSection,
+  RulesSettingsSection,
+  SourcesSettingsSection,
+  TagsSettingsSection,
+} from "@/components/settings/settings-sections";
+import { SettingsDialog } from "@/components/settings/settings-dialog";
+import { getAdminSnapshot, getDashboardSnapshot } from "@/lib/repositories/app-repository";
 import { parseDashboardFilters } from "@/lib/filters";
 
 type PageProps = {
@@ -13,72 +19,65 @@ type PageProps = {
 };
 
 const viewCopy = {
-  all: {
-    label: "All",
-    description: "Everything in one continuous feed, ordered for scanning.",
-  },
-  "ai-ux-ui": {
-    label: "AI UX/UI",
-    description: "Patterns, workflows, trust cues and onboarding signals.",
-  },
-  "competitor-watch": {
-    label: "Competitor Watch",
-    description: "Moves across Trucker Path, AI Loadboard, NavPro and adjacent products.",
-  },
-  "industry-signals": {
-    label: "Industry Signals",
-    description: "Category-level pricing, routing, navigation and loadboard signals.",
-  },
-  saved: {
-    label: "Saved",
-    description: "Pinned items for follow-up and synthesis.",
-  },
+  all: { label: "All" },
+  "ai-ux-ui": { label: "AI UX/UI" },
+  "competitor-watch": { label: "Competitor Watch" },
+  "industry-signals": { label: "Industry Signals" },
+  saved: { label: "Saved" },
 } as const;
 
 export default async function Home({ searchParams }: PageProps) {
   const resolvedParams = await searchParams;
   const filters = parseDashboardFilters(resolvedParams);
-  const snapshot = await getDashboardSnapshot(filters);
+  const [snapshot, adminSnapshot] = await Promise.all([getDashboardSnapshot(filters), getAdminSnapshot()]);
   const activeView = viewCopy[snapshot.activeView];
 
   return (
     <AppShell
-      pathname="/"
-      title="Signal flow, not dashboard clutter."
-      subtitle="Use tabs to jump categories, then scan one continuous stream instead of bouncing across multiple sections."
+      title="boyce dashboard"
+      headerActions={
+        <SettingsDialog
+          sourcesPanel={<SourcesSettingsSection snapshot={adminSnapshot} />}
+          entitiesPanel={<EntitiesSettingsSection snapshot={adminSnapshot} />}
+          tagsPanel={<TagsSettingsSection snapshot={adminSnapshot} />}
+          rulesPanel={<RulesSettingsSection snapshot={adminSnapshot} />}
+        />
+      }
     >
       <LastVisitBeacon />
 
-      <section>
-        <DashboardViewTabs activeView={snapshot.activeView} />
-        <DashboardFiltersBar filters={filters} tags={snapshot.tags} entities={snapshot.entities} />
-      </section>
+      <section className="grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-10">
+        <aside className="lg:sticky lg:top-16 lg:self-start">
+          <DashboardViewTabs activeView={snapshot.activeView} layout="sidebar" />
+          <div className="mt-4">
+            <DashboardFiltersBar filters={filters} tags={snapshot.tags} entities={snapshot.entities} layout="sidebar" />
+          </div>
+        </aside>
 
-      <section>
-        <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-          <div>
-            <div className="mb-2 flex items-center gap-2">
-              <Badge tone={snapshot.feedItems.length > 0 ? "accent" : "muted"}>{snapshot.feedItems.length} items</Badge>
-              <Badge tone="muted">{activeView.label}</Badge>
+        <div className="min-w-0 lg:flex lg:justify-center">
+          <div className="w-full lg:max-w-[700px]">
+            <div className="mb-5 flex items-end justify-between border-b border-black/6 pb-3">
+              <h2 className="font-display text-xl font-semibold tracking-tight text-slate-950 md:text-[1.55rem]">
+                {activeView.label}
+              </h2>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                {snapshot.feedItems.length} items
+              </p>
             </div>
-            <h2 className="font-display text-2xl font-semibold tracking-tight text-slate-950 md:text-3xl">
-              {activeView.label}
-            </h2>
-            <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-600">{activeView.description}</p>
+
+            {snapshot.feedItems.length === 0 ? (
+              <Card className="rounded-[24px] border border-dashed border-black/10 bg-black/[0.015] p-6 text-sm text-slate-500 shadow-none">
+                No items match the current tab and filters.
+              </Card>
+            ) : (
+              <div className="grid gap-4">
+                {snapshot.feedItems.map((item) => (
+                  <FeedCard key={item.id} item={item} />
+                ))}
+              </div>
+            )}
           </div>
         </div>
-
-        {snapshot.feedItems.length === 0 ? (
-          <Card className="rounded-[24px] border border-dashed border-black/10 bg-black/[0.015] p-6 text-sm text-slate-500 shadow-none">
-            No items match the current tab and filters.
-          </Card>
-        ) : (
-          <div className="grid gap-3">
-            {snapshot.feedItems.map((item) => (
-              <FeedCard key={item.id} item={item} />
-            ))}
-          </div>
-        )}
       </section>
     </AppShell>
   );

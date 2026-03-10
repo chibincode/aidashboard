@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Funnel, Sparkles } from "lucide-react";
+import { Funnel } from "lucide-react";
 import type { DashboardFilters, EntityRecord, TagRecord } from "@/lib/domain";
 import { sourceTypes } from "@/lib/domain";
 import { Button } from "@/components/ui/button";
@@ -12,10 +12,12 @@ export function DashboardFiltersBar({
   filters,
   tags,
   entities,
+  layout = "toolbar",
 }: {
   filters: DashboardFilters;
   tags: TagRecord[];
   entities: EntityRecord[];
+  layout?: "toolbar" | "sidebar";
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -39,18 +41,21 @@ export function DashboardFiltersBar({
   }
 
   return (
-    <Card className="mb-6 border-white/65 bg-white/72 p-4 shadow-[0_12px_40px_-32px_rgba(12,23,32,0.42)]">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+    <Card
+      className={
+        layout === "sidebar"
+          ? "border-black/6 bg-white p-4 shadow-[0_10px_28px_-26px_rgba(12,23,32,0.18)]"
+          : "mb-6 border-black/6 bg-white p-4 shadow-[0_10px_28px_-26px_rgba(12,23,32,0.18)]"
+      }
+    >
+      <div className={layout === "sidebar" ? "flex flex-col gap-3" : "flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"}>
         <div>
           <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
             <Funnel className="size-4" />
-            Refine feed
+            Filters
           </div>
-          <p className="mt-1 text-sm text-slate-600">
-            Narrow the current tab without leaving the main reading flow.
-          </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className={layout === "sidebar" ? "flex flex-wrap gap-2" : "flex flex-wrap gap-2"}>
           <Button
             variant={filters.unreadOnly ? "primary" : "secondary"}
             size="sm"
@@ -71,7 +76,7 @@ export function DashboardFiltersBar({
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 lg:grid-cols-3">
+      <div className={layout === "sidebar" ? "mt-4 grid gap-3" : "mt-4 grid gap-3 lg:grid-cols-3"}>
         <Select
           value={filters.entity ?? ""}
           onChange={(event) => updateParam("entity", event.target.value || undefined)}
@@ -102,11 +107,6 @@ export function DashboardFiltersBar({
             </option>
           ))}
         </Select>
-      </div>
-
-      <div className="mt-3 flex items-center gap-2 text-xs text-slate-500">
-        <Sparkles className="size-3.5" />
-        Save and read actions stay on each story card.
       </div>
     </Card>
   );
