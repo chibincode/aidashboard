@@ -19,6 +19,8 @@ import {
 } from "@/lib/seed";
 import { slugify } from "@/lib/utils";
 
+const LIVE_DEMO_TIMEOUT_MS = 2_000;
+
 function isLiveDemoSource(source: SourceRecord) {
   return source.isActive && source.config.liveDemo === true;
 }
@@ -26,6 +28,22 @@ function isLiveDemoSource(source: SourceRecord) {
 function buildLiveDemoItemId(sourceId: string, canonicalUrl: string, title: string) {
   const statusId = canonicalUrl.match(/status\/(\d+)/)?.[1];
   return statusId ? `live_${sourceId}_${statusId}` : `live_${sourceId}_${slugify(title).slice(0, 48)}`;
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T) {
+  return new Promise<T>((resolve) => {
+    const timer = setTimeout(() => resolve(fallback), ms);
+
+    void promise
+      .then((value) => {
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch(() => {
+        clearTimeout(timer);
+        resolve(fallback);
+      });
+  });
 }
 
 async function getLiveDemoFeedItems() {
@@ -44,9 +62,13 @@ async function getLiveDemoFeedItems() {
   const results = await Promise.all(
     liveSources.map(async (source) => {
       try {
-        const result = await ingestSource(
-          source,
-          seedRules.filter((rule) => !rule.sourceId || rule.sourceId === source.id),
+        const result = await withTimeout(
+          ingestSource(
+            source,
+            seedRules.filter((rule) => !rule.sourceId || rule.sourceId === source.id),
+          ),
+          LIVE_DEMO_TIMEOUT_MS,
+          { adapter: source.type, warnings: ["Live demo fetch timed out."], items: [] },
         );
 
         return result.items
@@ -64,6 +86,7 @@ async function getLiveDemoFeedItems() {
             ingestedAt: new Date(),
             fingerprint: item.fingerprint ?? `${source.id}:${item.canonicalUrl}`,
             authorName: item.authorName ?? null,
+            authorAvatarUrl: item.authorAvatarUrl ?? null,
             thumbnailUrl: item.thumbnailUrl ?? null,
             mediaKind: item.mediaKind ?? null,
             socialMetrics: item.socialMetrics,

@@ -14,7 +14,7 @@ export function AppShell({
   return (
     <div className="min-h-screen bg-[#f3f4f6]">
       <div className="mx-auto flex min-h-screen max-w-[1360px] flex-col px-4 pb-4 pt-4 md:px-6 md:pb-5 md:pt-5">
-        <div className="sticky top-0 z-30 -mx-4 px-4 pb-2 md:-mx-6 md:px-6">
+        <div className="sticky top-0 z-30 -mx-4 px-4 pb-[28px] md:-mx-6 md:px-6">
           <header className="relative border-b border-black/7 bg-[#f3f4f6]/88 px-1 py-3 backdrop-blur-md md:px-0">
             <div className="flex items-center justify-between gap-4">
               <div className="min-w-0">

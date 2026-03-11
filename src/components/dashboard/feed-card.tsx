@@ -20,6 +20,7 @@ import {
 import type { DashboardItem, SocialMetrics } from "@/lib/domain";
 import { setItemReadAction, toggleSavedAction } from "@/actions/item-state";
 import { FeedDetailModal } from "@/components/dashboard/feed-detail-modal";
+import { SourceAvatar } from "@/components/dashboard/source-avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -172,6 +173,11 @@ export function FeedCard({ item }: { item: DashboardItem }) {
   const isShortVideo = isYouTube && (item.canonicalUrl.includes("/shorts/") || (durationSeconds !== null && durationSeconds < 90));
   const isXVideo = item.sourceType === "x" && item.mediaKind === "video";
   const isXImage = item.sourceType === "x" && item.mediaKind === "image";
+  const isWebsiteInspiration =
+    Boolean(item.thumbnailUrl) &&
+    (item.sourceType === "website" || item.sourceType === "rss") &&
+    item.tags.some((tag) => tag.slug === "website-inspiration");
+  const actionLabel = isWebsiteInspiration ? "Open review" : meta.actionLabel;
 
   function setReadValue(nextValue: boolean) {
     startTransition(async () => {
@@ -261,14 +267,12 @@ export function FeedCard({ item }: { item: DashboardItem }) {
 
             <div className="flex items-start gap-3 p-4 md:p-5">
               <button type="button" className="flex min-w-0 flex-1 items-start gap-3 text-left" onClick={() => setDetailOpen(true)}>
-                <span
-                  className={cn(
-                    "inline-flex size-11 shrink-0 items-center justify-center rounded-full text-sm font-semibold shadow-[0_16px_32px_-24px_rgba(15,23,42,0.8)]",
-                    meta.avatarClass,
-                  )}
-                >
-                  {sourceName.slice(0, 1)}
-                </span>
+                <SourceAvatar
+                  src={item.authorAvatarUrl}
+                  name={sourceName}
+                  className="size-11"
+                  fallbackClassName={meta.avatarClass}
+                />
                 <div className="min-w-0">
                   <h3 className="line-clamp-2 text-[17px] font-semibold leading-6 tracking-tight text-slate-950">{item.title}</h3>
                   <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500">
@@ -300,14 +304,12 @@ export function FeedCard({ item }: { item: DashboardItem }) {
           <div className="p-4 md:p-5">
             <div className="flex items-start justify-between gap-3">
               <button type="button" className="flex min-w-0 flex-1 items-start gap-3 text-left" onClick={() => setDetailOpen(true)}>
-                <span
-                  className={cn(
-                    "inline-flex size-11 shrink-0 items-center justify-center rounded-full text-sm font-semibold shadow-[0_16px_32px_-24px_rgba(15,23,42,0.8)]",
-                    meta.avatarClass,
-                  )}
-                >
-                  {sourceName.slice(0, 1)}
-                </span>
+                <SourceAvatar
+                  src={item.authorAvatarUrl}
+                  name={sourceName}
+                  className="size-11"
+                  fallbackClassName={meta.avatarClass}
+                />
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <span
@@ -400,6 +402,62 @@ export function FeedCard({ item }: { item: DashboardItem }) {
               </Link>
             </div>
           </div>
+        ) : isWebsiteInspiration ? (
+          <div>
+            <button type="button" className="block w-full text-left" onClick={() => setDetailOpen(true)}>
+              <div className="relative overflow-hidden bg-slate-100">
+                <img
+                  src={item.thumbnailUrl ?? ""}
+                  alt=""
+                  className="aspect-[1.24/1] h-full w-full object-cover transition duration-500 group-hover:scale-[1.02]"
+                />
+                <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(15,23,42,0.02)_38%,rgba(15,23,42,0.18)_100%)]" />
+                <div className="absolute left-4 top-4 flex flex-wrap items-center gap-2">
+                  <span
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em]",
+                      meta.chipClass,
+                    )}
+                  >
+                    <span className={cn("inline-flex size-4 items-center justify-center rounded-full", meta.iconClass)}>
+                      <Icon className="size-2.5" />
+                    </span>
+                    Website Inspiration
+                  </span>
+                  <Badge tone={item.isNew ? "accent" : "muted"}>{item.isNew ? "new" : "queued"}</Badge>
+                </div>
+              </div>
+            </button>
+
+            <div className="p-4 md:p-5">
+              <div className="flex gap-4">
+                <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setDetailOpen(true)}>
+                  <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                    <span className="text-slate-400">{meta.sourceLabel}</span>
+                    <span>{sourceName}</span>
+                    <span suppressHydrationWarning>{formatRelativeTime(item.publishedAt)}</span>
+                  </div>
+                  <h3 className="mt-3 text-[17px] font-semibold leading-6 tracking-tight text-slate-950">{item.title}</h3>
+                  <p className="mt-2 line-clamp-2 text-sm leading-6 text-slate-600">{item.excerpt}</p>
+                </button>
+
+                {renderStateButtons("opacity-100 transition md:opacity-70 md:group-hover:opacity-100")}
+              </div>
+
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-black/6 pt-3">
+                <TagPills item={item} />
+                <Link
+                  href={item.canonicalUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={cn("inline-flex items-center gap-1 font-semibold transition", meta.ctaClass)}
+                >
+                  {actionLabel}
+                  <ExternalLink className="size-4" />
+                </Link>
+              </div>
+            </div>
+          </div>
         ) : (
           <div className="p-4">
             <div className="flex gap-4">
@@ -442,7 +500,7 @@ export function FeedCard({ item }: { item: DashboardItem }) {
                   rel="noreferrer"
                   className={cn("inline-flex items-center gap-1 font-semibold transition", meta.ctaClass)}
                 >
-                  {meta.actionLabel}
+                  {actionLabel}
                   <ExternalLink className="size-4" />
                 </Link>
               </div>

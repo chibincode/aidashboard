@@ -1,5 +1,8 @@
-import { describe, expect, it } from "vitest";
+import Parser from "rss-parser";
+import { describe, expect, it, vi } from "vitest";
+import { fetchRssItems } from "@/lib/ingestion/adapters/rss";
 import { dedupeIncomingItems } from "@/lib/ingestion/dedupe";
+import { parseTwStalkerHtml } from "@/lib/ingestion/adapters/x";
 import { parseWebsiteHtml } from "@/lib/ingestion/adapters/website";
 import { applyTagRules } from "@/lib/ingestion/rules";
 import { seedRules, seedSources, seedTags } from "@/lib/seed";
@@ -66,5 +69,101 @@ describe("ingestion adapters", () => {
 
     expect(tagIds).toContain("tag_pricing");
     expect(tagIds).toContain(seedTags[0].id);
+  });
+
+  it("parses X avatar urls from TwStalker html", () => {
+    const source = seedSources.find((entry) => entry.id === "source_andy_hooke_x");
+    expect(source).toBeDefined();
+
+    const result = parseTwStalkerHtml(
+      source!,
+      `
+        <div class="my-profile-dash">
+          <img class="img-thumbnail" src="https://pbs.twimg.com/profile_images/1546442126543785984/rPOmKAIB_normal.jpg" alt="Picture" />
+        </div>
+        <article class="activity-posts">
+          <div class="user-text3">
+            <h4>Andy Hooke</h4>
+            <span><a href="/andy_hooke/status/1">5 seconds ago</a></span>
+          </div>
+          <div class="activity-descp">
+            <p>Another week of finding the best SaaS landing pages</p>
+          </div>
+          <div class="like-comment-view">
+            <a href="/andy_hooke/status/1">Open</a>
+          </div>
+          <div class="left-comments">
+            <div class="like-item"><span>5</span></div>
+            <div class="like-item"><span>2</span></div>
+            <div class="like-item"><span>75</span></div>
+            <div class="like-item"><span>2K</span></div>
+            <div class="like-item"><span>25</span></div>
+          </div>
+        </article>
+      `,
+    );
+
+    expect(result.items[0]).toMatchObject({
+      authorName: "Andy Hooke",
+      authorAvatarUrl: "https://pbs.twimg.com/profile_images/1546442126543785984/rPOmKAIB_400x400.jpg",
+    });
+  });
+
+  it("parses A1 Gallery homepage cards into image-backed website inspiration items", () => {
+    const source = seedSources.find((entry) => entry.id === "source_a1_gallery");
+    expect(source).toBeDefined();
+
+    const result = parseWebsiteHtml(
+      source!,
+      `
+        <main>
+          <article class="website_item">
+            <a class="card-overlay-link" aria-label="Sendr" href="/website/sendr"></a>
+            <img src="https://cdn.example.com/sendr.png" alt="Sendr website screenshot" />
+          </article>
+          <article class="website_item is-advert">
+            <a class="card-overlay-link" aria-label="Sponsored" href="/website/ad"></a>
+            <img src="https://cdn.example.com/ad.png" alt="Sponsored" />
+          </article>
+        </main>
+      `,
+    );
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]).toMatchObject({
+      title: "Sendr",
+      canonicalUrl: "https://www.a1.gallery/website/sendr",
+      thumbnailUrl: "https://cdn.example.com/sendr.png",
+      fingerprint: "source_a1_gallery:https://www.a1.gallery/website/sendr",
+    });
+  });
+
+  it("extracts thumbnails from gallery RSS content", async () => {
+    const source = seedSources.find((entry) => entry.id === "source_onepagelove_gallery");
+    expect(source).toBeDefined();
+
+    const parseURL = vi.spyOn(Parser.prototype, "parseURL").mockResolvedValue({
+      items: [
+        {
+          title: "Website Inspiration: Poly",
+          link: "https://onepagelove.com/poly",
+          isoDate: "2026-03-09T15:09:31.000Z",
+          creator: "Rob Hope @robhope",
+          content:
+            '<p><img src="https://assets.onepagelove.com/poly.jpg" /></p><p>Brilliant feature storytelling brought to life as you scroll.</p>',
+          contentSnippet: "Brilliant feature storytelling brought to life as you scroll.",
+        },
+      ],
+    } as never);
+
+    const result = await fetchRssItems(source!);
+
+    expect(result.items[0]).toMatchObject({
+      canonicalUrl: "https://onepagelove.com/poly",
+      thumbnailUrl: "https://assets.onepagelove.com/poly.jpg",
+      fingerprint: "source_onepagelove_gallery:https://onepagelove.com/poly",
+    });
+
+    parseURL.mockRestore();
   });
 });

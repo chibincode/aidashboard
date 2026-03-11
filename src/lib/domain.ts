@@ -16,6 +16,7 @@ export type MembershipRole = (typeof membershipRoles)[number];
 export const sectionKeys = [
   "new-since-last-visit",
   "ai-ux-ui",
+  "website-inspiration",
   "competitor-watch",
   "industry-signals",
   "saved",
@@ -25,6 +26,7 @@ export type SectionKey = (typeof sectionKeys)[number];
 export const dashboardViews = [
   "all",
   "ai-ux-ui",
+  "website-inspiration",
   "competitor-watch",
   "industry-signals",
   "saved",
@@ -74,6 +76,37 @@ export interface TagRecord {
   isActive: boolean;
 }
 
+export const sourceExtractorProfiles = [
+  "generic-rss",
+  "gallery-rss",
+  "a1-gallery-home",
+] as const;
+export type SourceExtractorProfile = (typeof sourceExtractorProfiles)[number];
+
+export interface GenericSourceConfig extends Record<string, unknown> {
+  extractorProfile?: SourceExtractorProfile;
+  itemType?: FeedItemType;
+  listSelector?: string;
+  avatarUrl?: string;
+  handle?: string;
+}
+
+export interface YouTubeSourceConfig extends Record<string, unknown> {
+  feedUrl: string;
+  channelId?: string;
+  channelUrl?: string;
+  inputUrl?: string;
+  handleUrl?: string;
+  itemType?: "video";
+}
+
+export interface GallerySourceConfig extends GenericSourceConfig {
+  extractorProfile: "gallery-rss" | "a1-gallery-home";
+  itemType?: "article";
+}
+
+export type SourceConfig = GenericSourceConfig | GallerySourceConfig | YouTubeSourceConfig;
+
 export interface SourceRecord {
   id: string;
   workspaceId: string;
@@ -86,7 +119,7 @@ export interface SourceRecord {
   priority: number;
   isActive: boolean;
   healthStatus: SourceHealthState;
-  config: Record<string, unknown>;
+  config: SourceConfig;
   defaultTagIds: string[];
   lastFetchedAt: Date | null;
   lastErrorMessage: string | null;
@@ -128,6 +161,7 @@ export interface FeedItemRecord {
   ingestedAt: Date;
   fingerprint: string;
   authorName: string | null;
+  authorAvatarUrl?: string | null;
   thumbnailUrl: string | null;
   mediaKind?: "image" | "video" | null;
   mediaLabel?: string | null;
@@ -169,6 +203,7 @@ export interface DashboardItem {
   contentType: FeedItemType;
   publishedAt: Date;
   authorName: string | null;
+  authorAvatarUrl?: string | null;
   thumbnailUrl: string | null;
   mediaKind?: "image" | "video" | null;
   mediaLabel?: string | null;

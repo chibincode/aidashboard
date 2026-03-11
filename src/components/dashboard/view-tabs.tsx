@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 const tabs: Array<{ value: DashboardView; label: string }> = [
   { value: "all", label: "All" },
   { value: "ai-ux-ui", label: "AI UX/UI" },
+  { value: "website-inspiration", label: "Website Inspiration" },
   { value: "competitor-watch", label: "Competitor Watch" },
   { value: "industry-signals", label: "Industry Signals" },
   { value: "saved", label: "Saved" },

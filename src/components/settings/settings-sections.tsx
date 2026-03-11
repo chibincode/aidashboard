@@ -10,7 +10,9 @@ import {
   toggleRuleAction,
   toggleSourceAction,
   toggleTagAction,
+  updateSourceAction,
 } from "@/actions/admin";
+import { SourcesSettingsPanel } from "@/components/settings/sources-settings-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -19,7 +21,6 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { appConfig } from "@/lib/env";
 import type { AdminSnapshot, SettingsTabId } from "@/lib/domain";
-import { formatRelativeTime } from "@/lib/utils";
 
 function SettingsSectionHeader({
   title,
@@ -78,134 +79,15 @@ export function SourcesSettingsSection({ snapshot }: { snapshot: AdminSnapshot }
   return (
     <div>
       <SettingsSectionHeader title="Sources" description="Inputs, priorities, refresh cadence." />
-      <SettingsModeNote />
-
-      <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
-        <SettingsColumnCard>
-          <form action={createSourceAction} className="grid gap-4">
-            <div className="grid gap-1.5">
-              <FieldLabel>Name</FieldLabel>
-              <Input name="name" placeholder="NavPro release notes" disabled={!appConfig.hasDatabase} required />
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <label className="grid gap-1.5">
-                <FieldLabel>Type</FieldLabel>
-                <Select name="type" defaultValue="website" disabled={!appConfig.hasDatabase}>
-                  <option value="website">Website</option>
-                  <option value="rss">RSS / Atom</option>
-                  <option value="youtube">YouTube</option>
-                  <option value="x">X</option>
-                </Select>
-              </label>
-              <label className="grid gap-1.5">
-                <FieldLabel>Entity</FieldLabel>
-                <Select name="entityId" defaultValue="" disabled={!appConfig.hasDatabase}>
-                  <option value="">Unassigned</option>
-                  {snapshot.entities.map((entity) => (
-                    <option key={entity.id} value={entity.id}>
-                      {entity.name}
-                    </option>
-                  ))}
-                </Select>
-              </label>
-            </div>
-
-            <div className="grid gap-1.5">
-              <FieldLabel>URL</FieldLabel>
-              <Input name="url" placeholder="https://..." disabled={!appConfig.hasDatabase} required />
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <label className="grid gap-1.5">
-                <FieldLabel>Priority</FieldLabel>
-                <Input name="priority" type="number" min={0} max={100} defaultValue={70} disabled={!appConfig.hasDatabase} />
-              </label>
-              <label className="grid gap-1.5">
-                <FieldLabel>Refresh</FieldLabel>
-                <Input
-                  name="refreshMinutes"
-                  type="number"
-                  min={15}
-                  max={240}
-                  defaultValue={30}
-                  disabled={!appConfig.hasDatabase}
-                />
-              </label>
-            </div>
-
-            <div className="grid gap-2">
-              <FieldLabel>Default Tags</FieldLabel>
-              <div className="flex flex-wrap gap-2">
-                {snapshot.tags.map((tag) => (
-                  <label key={tag.id} className="flex items-center gap-2 rounded-full bg-black/[0.04] px-3 py-2 text-xs text-slate-700">
-                    <input type="checkbox" name="defaultTagIds" value={tag.id} disabled={!appConfig.hasDatabase} />
-                    {tag.name}
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            <label className="flex items-center gap-2 text-sm text-slate-600">
-              <input type="checkbox" name="isActive" defaultChecked disabled={!appConfig.hasDatabase} />
-              Enable immediately
-            </label>
-
-            <Button type="submit" disabled={!appConfig.hasDatabase}>
-              Add source
-            </Button>
-          </form>
-        </SettingsColumnCard>
-
-        <div className="grid gap-3">
-          {snapshot.sources.map((source) => (
-            <SettingsColumnCard key={source.id}>
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge tone={source.isActive ? "accent" : "muted"}>{source.isActive ? "active" : "paused"}</Badge>
-                    <Badge tone={source.healthStatus === "healthy" ? "muted" : "danger"}>{source.healthStatus}</Badge>
-                    <Badge tone="muted">{source.type}</Badge>
-                  </div>
-                  <h3 className="mt-3 text-lg font-semibold tracking-tight text-slate-950">{source.name}</h3>
-                  <p className="mt-1 break-all text-sm text-slate-500">{source.url}</p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {source.defaultTagIds.map((tagId) => {
-                      const tag = snapshot.tags.find((entry) => entry.id === tagId);
-                      return tag ? (
-                        <Badge key={tag.id} tone="muted">
-                          {tag.name}
-                        </Badge>
-                      ) : null;
-                    })}
-                  </div>
-                  <p className="mt-3 text-xs text-slate-500">
-                    Priority {source.priority} · every {source.refreshMinutes} min ·{" "}
-                    {source.lastFetchedAt ? formatRelativeTime(source.lastFetchedAt) : "never fetched"}
-                  </p>
-                  {source.lastErrorMessage ? <p className="mt-2 text-sm text-[#991b1b]">{source.lastErrorMessage}</p> : null}
-                </div>
-
-                <div className="flex shrink-0 gap-2">
-                  <form action={toggleSourceAction}>
-                    <input type="hidden" name="id" value={source.id} />
-                    <input type="hidden" name="isActive" value={String(!source.isActive)} />
-                    <Button type="submit" variant="secondary" disabled={!appConfig.hasDatabase}>
-                      {source.isActive ? "Pause" : "Enable"}
-                    </Button>
-                  </form>
-                  <form action={deleteSourceAction}>
-                    <input type="hidden" name="id" value={source.id} />
-                    <Button type="submit" variant="danger" disabled={!appConfig.hasDatabase}>
-                      Delete
-                    </Button>
-                  </form>
-                </div>
-              </div>
-            </SettingsColumnCard>
-          ))}
-        </div>
-      </div>
+      <SourcesSettingsPanel
+        snapshot={snapshot}
+        hasDatabase={appConfig.hasDatabase}
+        isDemoMode={appConfig.isDemoMode}
+        createAction={createSourceAction}
+        updateAction={updateSourceAction}
+        toggleAction={toggleSourceAction}
+        deleteAction={deleteSourceAction}
+      />
     </div>
   );
 }

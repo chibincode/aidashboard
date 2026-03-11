@@ -1,8 +1,12 @@
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import * as cheerio from "cheerio";
 import type { SourceRecord } from "@/lib/domain";
+import { env } from "@/lib/env";
 import type { SourceAdapterResult } from "@/lib/ingestion/types";
 import { fetchRssItems } from "@/lib/ingestion/adapters/rss";
+
+const execFileAsync = promisify(execFile);
 
 function parseCompactCount(value: string) {
   const cleaned = value.replace(/,/g, "").trim().toUpperCase();
@@ -32,6 +36,14 @@ function toTitle(text: string) {
   return `${cleaned.slice(0, 85).trimEnd()}...`;
 }
 
+export function normalizeXProfileImageUrl(value?: string | null) {
+  if (!value) {
+    return null;
+  }
+
+  return value.replace(/_normal(?=\.(jpg|jpeg|png|webp|gif)(?:$|\?))/i, "_400x400");
+}
+
 function parseRelativeTimestamp(value: string) {
   const cleaned = value.trim().toLowerCase();
   const now = Date.now();
@@ -59,9 +71,70 @@ function parseRelativeTimestamp(value: string) {
   return new Date(now - amount * multipliers[unit as keyof typeof multipliers]);
 }
 
-function parseTwStalkerHtml(source: SourceRecord, html: string): SourceAdapterResult {
+function getTwStalkerAvatarUrl($: cheerio.CheerioAPI, handle: string | null) {
+  const selector = handle
+    ? `img[alt='${handle} Profile Picture'], img[alt='@${handle} Profile Picture']`
+    : "img[alt$='Profile Picture']";
+
+  return normalizeXProfileImageUrl(
+    $(selector).first().attr("src") ??
+      $(".my-profile-dash img.img-thumbnail").first().attr("src") ??
+      $("meta[property='og:image']").attr("content") ??
+      null,
+  );
+}
+
+async function fetchXProfileImageFromApi(handle: string) {
+  if (!env.X_BEARER_TOKEN) {
+    return null;
+  }
+
+  try {
+    const response = await fetch(
+      `https://api.x.com/2/users/by/username/${encodeURIComponent(handle)}?user.fields=profile_image_url`,
+      {
+        headers: {
+          Authorization: `Bearer ${env.X_BEARER_TOKEN}`,
+        },
+        signal: AbortSignal.timeout(8_000),
+        cache: "no-store",
+      },
+    );
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const payload = (await response.json()) as {
+      data?: {
+        profile_image_url?: string;
+      };
+    };
+
+    return normalizeXProfileImageUrl(payload.data?.profile_image_url ?? null);
+  } catch {
+    return null;
+  }
+}
+
+function withAuthorAvatar(result: SourceAdapterResult, authorAvatarUrl: string | null): SourceAdapterResult {
+  if (!authorAvatarUrl) {
+    return result;
+  }
+
+  return {
+    ...result,
+    items: result.items.map((item) => ({
+      ...item,
+      authorAvatarUrl: item.authorAvatarUrl ?? authorAvatarUrl,
+    })),
+  };
+}
+
+export function parseTwStalkerHtml(source: SourceRecord, html: string): SourceAdapterResult {
   const $ = cheerio.load(html);
   const handle = typeof source.config.handle === "string" ? source.config.handle.replace(/^@/, "") : null;
+  const authorAvatarUrl = getTwStalkerAvatarUrl($, handle);
   const items = $(".activity-posts")
     .slice(0, 8)
     .map((_, node) => {
@@ -93,6 +166,7 @@ function parseTwStalkerHtml(source: SourceRecord, html: string): SourceAdapterRe
         publishedAt: parseRelativeTimestamp(timestampText),
         contentType: "post" as const,
         authorName: authorName || null,
+        authorAvatarUrl,
         thumbnailUrl: poster ?? image ?? null,
         mediaKind,
         socialMetrics: {
@@ -122,7 +196,7 @@ async function fetchTwStalkerItems(source: SourceRecord) {
   }
 
   try {
-    const html = execFileSync(
+    const { stdout } = await execFileAsync(
       "curl",
       [
         "-L",
@@ -138,7 +212,7 @@ async function fetchTwStalkerItems(source: SourceRecord) {
       },
     );
 
-    return parseTwStalkerHtml(source, html);
+    return parseTwStalkerHtml(source, stdout);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown TwStalker error";
 
@@ -157,17 +231,25 @@ export async function fetchXItems(source: SourceRecord) {
   }
 
   if (typeof source.config.rssUrl === "string" && source.config.rssUrl.length > 0) {
+    const handle = typeof source.config.handle === "string" ? source.config.handle.replace(/^@/, "") : null;
+    const authorAvatarUrl =
+      (handle ? await fetchXProfileImageFromApi(handle) : null) ??
+      (typeof source.config.avatarUrl === "string" ? normalizeXProfileImageUrl(source.config.avatarUrl) : null);
+
     const rssResult = await fetchRssItems({
       ...source,
       type: "rss",
       url: source.config.rssUrl,
     });
 
-    return {
-      adapter: "x" as const,
-      warnings: twStalkerResult?.warnings ?? [],
-      items: rssResult.items,
-    };
+    return withAuthorAvatar(
+      {
+        adapter: "x" as const,
+        warnings: twStalkerResult?.warnings ?? [],
+        items: rssResult.items,
+      },
+      authorAvatarUrl,
+    );
   }
 
   return {

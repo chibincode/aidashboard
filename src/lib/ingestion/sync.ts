@@ -71,6 +71,7 @@ export async function syncSourceById(sourceId: string) {
             ingestedAt: new Date(),
             fingerprint,
             authorName: item.authorName ?? null,
+            authorAvatarUrl: item.authorAvatarUrl ?? null,
             thumbnailUrl: item.thumbnailUrl ?? null,
           })
           .returning();

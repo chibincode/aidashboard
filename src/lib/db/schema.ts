@@ -204,6 +204,7 @@ export const feedItems = pgTable("feed_items", {
   ingestedAt: timestamp("ingested_at", { withTimezone: true }).notNull().defaultNow(),
   fingerprint: text("fingerprint").notNull().unique(),
   authorName: text("author_name"),
+  authorAvatarUrl: text("author_avatar_url"),
   thumbnailUrl: text("thumbnail_url"),
 });
 

@@ -18,6 +18,7 @@ import {
   X,
 } from "lucide-react";
 import type { DashboardItem, SocialMetrics } from "@/lib/domain";
+import { SourceAvatar } from "@/components/dashboard/source-avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn, compactNumber, formatRelativeTime } from "@/lib/utils";
@@ -203,6 +204,11 @@ export function FeedDetailModal({
   const Icon = contentTypeIcon[item.contentType];
   const meta = sourceTypeMeta[item.sourceType];
   const hasMedia = item.sourceType === "youtube" || Boolean(item.thumbnailUrl);
+  const actionLabel =
+    (item.sourceType === "website" || item.sourceType === "rss") &&
+    item.tags.some((tag) => tag.slug === "website-inspiration")
+      ? "Open review"
+      : meta.actionLabel;
 
   return (
     <div className="fixed inset-0 z-50" aria-hidden={!open}>
@@ -213,31 +219,39 @@ export function FeedDetailModal({
           role="dialog"
           aria-modal="true"
           aria-labelledby={`feed-detail-title-${item.id}`}
-          className="flex h-full w-full flex-col overflow-hidden bg-[#f8f9fb] md:h-auto md:max-h-[calc(100vh-64px)] md:max-w-[1120px] md:rounded-[30px] md:border md:border-black/8 md:shadow-[0_36px_90px_-48px_rgba(15,23,42,0.55)]"
+          className="flex h-full w-full flex-col overflow-hidden bg-[#f8f9fb] md:h-auto md:max-h-[calc(100vh-48px)] md:max-w-[1280px] md:rounded-[30px] md:border md:border-black/8 md:shadow-[0_36px_90px_-48px_rgba(15,23,42,0.55)]"
           onClick={(event) => event.stopPropagation()}
         >
           <div className="flex items-start justify-between gap-4 border-b border-black/6 px-4 py-4 md:px-6">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-600 ring-1 ring-black/8">
-                  <span className="inline-flex size-4 items-center justify-center rounded-full bg-slate-950 text-white">
-                    <Icon className="size-2.5" />
+            <div className="flex min-w-0 items-start gap-3">
+              <SourceAvatar
+                src={item.authorAvatarUrl}
+                name={sourceName}
+                className="mt-0.5 size-11"
+                fallbackClassName={item.sourceType === "x" ? "bg-slate-950 text-white" : "bg-slate-200 text-slate-700"}
+              />
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-600 ring-1 ring-black/8">
+                    <span className="inline-flex size-4 items-center justify-center rounded-full bg-slate-950 text-white">
+                      <Icon className="size-2.5" />
+                    </span>
+                    {meta.label}
                   </span>
-                  {meta.label}
-                </span>
-                <Badge tone={item.isNew ? "accent" : "muted"}>{item.isNew ? "new" : "queued"}</Badge>
-                {item.entityName ? <Badge tone="muted">{item.entityName}</Badge> : null}
-              </div>
+                  <Badge tone={item.isNew ? "accent" : "muted"}>{item.isNew ? "new" : "queued"}</Badge>
+                  {item.entityName ? <Badge tone="muted">{item.entityName}</Badge> : null}
+                </div>
 
-              <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-                <span className="font-semibold text-slate-950">{sourceName}</span>
-                {(item.sourceType === "x" || item.sourceType === "youtube") && sourceHandle ? (
-                  <span className="text-slate-400">@{sourceHandle}</span>
-                ) : null}
-                <span className="text-slate-300">·</span>
-                <span className="text-slate-500" suppressHydrationWarning>
-                  {formatRelativeTime(item.publishedAt)}
-                </span>
+                <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                  <span className="font-semibold text-slate-950">{sourceName}</span>
+                  {(item.sourceType === "x" || item.sourceType === "youtube") && sourceHandle ? (
+                    <span className="text-slate-400">@{sourceHandle}</span>
+                  ) : null}
+                  <span className="text-slate-300">·</span>
+                  <span className="text-slate-500" suppressHydrationWarning>
+                    {formatRelativeTime(item.publishedAt)}
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -250,7 +264,7 @@ export function FeedDetailModal({
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
-            <div className={cn("grid gap-6", hasMedia ? "lg:grid-cols-[minmax(0,1.25fr)_360px]" : "")}>
+            <div className={cn("grid gap-6", hasMedia ? "lg:grid-cols-[minmax(0,1.45fr)_420px]" : "")}>
               {hasMedia ? (
                 <MediaPanel item={item} sourceName={sourceName} isShortVideo={isShortVideo} isXVideo={isXVideo} />
               ) : null}
@@ -308,10 +322,12 @@ export function FeedDetailModal({
                     href={item.canonicalUrl}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex items-center gap-1 rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+                    className="inline-flex rounded-full bg-slate-950 px-4 py-2 no-underline transition hover:bg-slate-800"
                   >
-                    {meta.actionLabel}
-                    <ExternalLink className="size-4" />
+                    <span className="inline-flex items-center gap-1 text-sm font-semibold text-white">
+                      {actionLabel}
+                      <ExternalLink className="size-4 text-white" />
+                    </span>
                   </Link>
                 </div>
 

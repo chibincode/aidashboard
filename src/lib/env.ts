@@ -11,6 +11,7 @@ const envSchema = z.object({
   INVITE_ALLOWLIST: z.string().optional(),
   INNGEST_EVENT_KEY: z.string().optional(),
   INNGEST_SIGNING_KEY: z.string().optional(),
+  X_BEARER_TOKEN: z.string().optional(),
   NEXT_PUBLIC_APP_URL: z.string().optional(),
   NEXT_PUBLIC_APP_NAME: z.string().optional(),
 });

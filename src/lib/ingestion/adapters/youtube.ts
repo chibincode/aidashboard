@@ -1,11 +1,18 @@
 import Parser from "rss-parser";
 import type { SourceRecord } from "@/lib/domain";
 import type { SourceAdapterResult } from "@/lib/ingestion/types";
+import { getYouTubeSourceConfig } from "@/lib/source-normalization";
 
 const parser = new Parser();
 
 export async function fetchYouTubeItems(source: SourceRecord): Promise<SourceAdapterResult> {
-  const feedUrl = String(source.config.feedUrl ?? source.url);
+  const config = getYouTubeSourceConfig(source);
+
+  if (!config) {
+    throw new Error("YouTube source is missing a validated feed URL.");
+  }
+
+  const feedUrl = config.feedUrl;
   const feed = await parser.parseURL(feedUrl);
 
   return {

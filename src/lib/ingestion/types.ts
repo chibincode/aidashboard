@@ -15,6 +15,7 @@ export interface NormalizedIncomingItem {
   publishedAt: Date;
   contentType: FeedItemType;
   authorName?: string | null;
+  authorAvatarUrl?: string | null;
   thumbnailUrl?: string | null;
   mediaKind?: "image" | "video" | null;
   socialMetrics?: SocialMetrics;

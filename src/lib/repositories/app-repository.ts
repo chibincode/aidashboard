@@ -3,6 +3,7 @@ import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import type {
   AdminSnapshot,
   DashboardFilters,
+  SourceConfig,
   TagRuleCondition,
   UserItemStateRecord,
   ViewerContext,
@@ -26,6 +27,7 @@ import {
   workspaces,
 } from "@/lib/db/schema";
 import { DEMO_EMAIL, DEMO_USER_ID, DEMO_WORKSPACE_ID, defaultWorkspace } from "@/lib/seed";
+import { shouldAutoApplyWebsiteInspirationTag, WEBSITE_INSPIRATION_TAG_SLUG } from "@/lib/source-normalization";
 import { slugify } from "@/lib/utils";
 
 const ITEM_STATE_COOKIE = "signal-deck-item-states";
@@ -223,6 +225,34 @@ export async function getAdminSnapshot(): Promise<AdminSnapshot> {
   };
 }
 
+export async function getSourceRecordById(id: string): Promise<SourceRecord | null> {
+  if (!appConfig.hasDatabase) {
+    return buildDemoAdminSnapshot().sources.find((source) => source.id === id) ?? null;
+  }
+
+  const viewer = await getViewerContext();
+  const db = requireDb();
+
+  const [sourceRow, sourceTagRows] = await Promise.all([
+    db.query.sources.findFirst({
+      where: and(eq(sources.id, id), eq(sources.workspaceId, viewer.workspaceId)),
+    }),
+    db
+      .select()
+      .from(sourceDefaultTags)
+      .where(eq(sourceDefaultTags.sourceId, id)),
+  ]);
+
+  if (!sourceRow) {
+    return null;
+  }
+
+  return toSourceRecord(
+    sourceRow,
+    sourceTagRows.map((row) => row.tagId),
+  );
+}
+
 export async function setLastVisitTimestamp() {
   const cookieStore = await cookies();
   cookieStore.set(LAST_VISIT_COOKIE, new Date().toISOString(), {
@@ -357,6 +387,7 @@ export async function createSourceRecord(input: {
   name: string;
   type: SourceRecord["type"];
   url: string;
+  config: SourceConfig;
   entityId: string | null;
   priority: number;
   refreshMinutes: number;
@@ -365,6 +396,7 @@ export async function createSourceRecord(input: {
 }) {
   const workspaceId = await assertWorkspace();
   const db = requireDb();
+  const defaultTagIds = await resolveSourceDefaultTagIds(workspaceId, input.type, input.config, input.defaultTagIds);
 
   const [inserted] = await db
     .insert(sources)
@@ -379,18 +411,60 @@ export async function createSourceRecord(input: {
       refreshMinutes: input.refreshMinutes,
       isActive: input.isActive,
       healthStatus: "stale",
-      config: {},
+      config: input.config,
     })
     .returning();
 
-  if (input.defaultTagIds.length > 0 && inserted) {
+  if (defaultTagIds.length > 0 && inserted) {
     await db.insert(sourceDefaultTags).values(
-      input.defaultTagIds.map((tagId) => ({
+      defaultTagIds.map((tagId) => ({
         sourceId: inserted.id,
         tagId,
       })),
     );
   }
+
+  return inserted?.id ?? null;
+}
+
+async function replaceSourceDefaultTags(sourceId: string, tagIds: string[]) {
+  const db = requireDb();
+
+  await db.delete(sourceDefaultTags).where(eq(sourceDefaultTags.sourceId, sourceId));
+
+  if (tagIds.length > 0) {
+    await db.insert(sourceDefaultTags).values(
+      tagIds.map((tagId) => ({
+        sourceId,
+        tagId,
+      })),
+    );
+  }
+}
+
+async function resolveSourceDefaultTagIds(
+  workspaceId: string,
+  type: SourceRecord["type"],
+  config: SourceConfig,
+  tagIds: string[],
+) {
+  const resolvedTagIds = new Set(tagIds);
+
+  if (!shouldAutoApplyWebsiteInspirationTag({ type, config })) {
+    return [...resolvedTagIds];
+  }
+
+  const db = requireDb();
+  const websiteInspirationTag = await db.query.tags.findFirst({
+    where: and(eq(tags.workspaceId, workspaceId), eq(tags.slug, WEBSITE_INSPIRATION_TAG_SLUG)),
+    columns: { id: true },
+  });
+
+  if (websiteInspirationTag?.id) {
+    resolvedTagIds.add(websiteInspirationTag.id);
+  }
+
+  return [...resolvedTagIds];
 }
 
 export async function toggleSourceRecord(id: string, isActive: boolean) {
@@ -401,6 +475,50 @@ export async function toggleSourceRecord(id: string, isActive: boolean) {
     .update(sources)
     .set({ isActive, updatedAt: new Date() })
     .where(and(eq(sources.id, id), eq(sources.workspaceId, workspaceId)));
+}
+
+export async function updateSourceRecord(input: {
+  id: string;
+  name: string;
+  type: SourceRecord["type"];
+  url: string;
+  config: SourceConfig;
+  entityId: string | null;
+  priority: number;
+  refreshMinutes: number;
+  isActive: boolean;
+  defaultTagIds: string[];
+}) {
+  const workspaceId = await assertWorkspace();
+  const db = requireDb();
+  const defaultTagIds = await resolveSourceDefaultTagIds(workspaceId, input.type, input.config, input.defaultTagIds);
+
+  const [updated] = await db
+    .update(sources)
+    .set({
+      name: input.name,
+      slug: slugify(input.name),
+      type: input.type,
+      url: input.url,
+      config: input.config,
+      entityId: input.entityId,
+      priority: input.priority,
+      refreshMinutes: input.refreshMinutes,
+      isActive: input.isActive,
+      healthStatus: "stale",
+      lastErrorMessage: null,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(sources.id, input.id), eq(sources.workspaceId, workspaceId)))
+    .returning({ id: sources.id });
+
+  if (!updated) {
+    throw new Error("Source not found.");
+  }
+
+  await replaceSourceDefaultTags(updated.id, defaultTagIds);
+
+  return updated.id;
 }
 
 export async function deleteSourceRecord(id: string) {

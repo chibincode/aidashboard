@@ -34,6 +34,8 @@ function toDashboardItem(args: {
     contentType: item.contentType,
     publishedAt: item.publishedAt,
     authorName: item.authorName,
+    authorAvatarUrl:
+      item.authorAvatarUrl ?? (typeof source?.config.avatarUrl === "string" ? source.config.avatarUrl : null),
     thumbnailUrl: item.thumbnailUrl,
     mediaKind: item.mediaKind ?? null,
     mediaLabel: item.mediaLabel,
@@ -92,6 +94,13 @@ function buildSections(items: DashboardItem[]): DashboardSection[] {
       description: "Interaction patterns, onboarding models, trust cues and AI-native workflows.",
       tone: "sand",
       items: items.filter((item) => item.tags.some((tag) => tag.slug === "ai-ux-ui")),
+    },
+    {
+      id: "website-inspiration",
+      title: "Website Inspiration",
+      description: "Fresh gallery drops, standout landing pages and review-worthy inspiration.",
+      tone: "sand",
+      items: items.filter((item) => item.tags.some((tag) => tag.slug === "website-inspiration")),
     },
     {
       id: "competitor-watch",

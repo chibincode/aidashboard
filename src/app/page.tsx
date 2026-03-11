@@ -21,6 +21,7 @@ type PageProps = {
 const viewCopy = {
   all: { label: "All" },
   "ai-ux-ui": { label: "AI UX/UI" },
+  "website-inspiration": { label: "Website Inspiration" },
   "competitor-watch": { label: "Competitor Watch" },
   "industry-signals": { label: "Industry Signals" },
   saved: { label: "Saved" },
