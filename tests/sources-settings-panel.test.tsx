@@ -136,7 +136,7 @@ describe("SourcesSettingsPanel", () => {
     render(
       <SourcesSettingsPanel
         snapshot={buildSnapshot()}
-        hasDatabase={false}
+        canManageSources={false}
         isDemoMode
         createAction={noopSourceAction}
         updateAction={noopSourceAction}
@@ -145,7 +145,9 @@ describe("SourcesSettingsPanel", () => {
       />,
     );
 
-    expect(screen.getByText(/connect/i)).toHaveTextContent("Demo mode is read-only. Connect DATABASE_URL to manage sources.");
+    expect(screen.getByText(/read-only until/i)).toHaveTextContent(
+      "Source management is read-only until DATABASE_URL is configured.",
+    );
     expect(screen.getByRole("button", { name: "Add source" })).toBeDisabled();
   });
 
@@ -155,7 +157,7 @@ describe("SourcesSettingsPanel", () => {
     render(
       <SourcesSettingsPanel
         snapshot={buildSnapshot()}
-        hasDatabase
+        canManageSources
         isDemoMode={false}
         createAction={noopSourceAction}
         updateAction={noopSourceAction}
@@ -179,7 +181,7 @@ describe("SourcesSettingsPanel", () => {
     render(
       <SourcesSettingsPanel
         snapshot={buildSnapshot()}
-        hasDatabase
+        canManageSources
         isDemoMode={false}
         createAction={noopSourceAction}
         updateAction={noopSourceAction}
@@ -202,7 +204,7 @@ describe("SourcesSettingsPanel", () => {
     render(
       <SourcesSettingsPanel
         snapshot={buildSnapshot()}
-        hasDatabase
+        canManageSources
         isDemoMode={false}
         createAction={noopSourceAction}
         updateAction={noopSourceAction}
@@ -223,7 +225,7 @@ describe("SourcesSettingsPanel", () => {
     render(
       <SourcesSettingsPanel
         snapshot={buildSnapshot()}
-        hasDatabase
+        canManageSources
         isDemoMode={false}
         createAction={noopSourceAction}
         updateAction={noopSourceAction}

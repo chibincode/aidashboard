@@ -55,15 +55,23 @@ function SettingsColumnCard({
 }
 
 function SourceTypeHint({ type }: { type: SourceFormValues["type"] }) {
-  if (type !== "youtube") {
-    return null;
+  if (type === "youtube") {
+    return (
+      <p className="text-xs leading-5 text-slate-500">
+        Accepts YouTube feed URLs, <code>/channel/UC...</code>, and <code>/@handle</code>.
+      </p>
+    );
   }
 
-  return (
-    <p className="text-xs leading-5 text-slate-500">
-      Accepts YouTube feed URLs, <code>/channel/UC...</code>, and <code>/@handle</code>.
-    </p>
-  );
+  if (type === "x") {
+    return (
+      <p className="text-xs leading-5 text-slate-500">
+        Accepts X profile URLs like <code>https://x.com/handle</code>. The handle and default RSS bridge are configured automatically.
+      </p>
+    );
+  }
+
+  return null;
 }
 
 function ExtractorHint({
@@ -241,7 +249,7 @@ function SourceModal({
   mode,
   source,
   snapshot,
-  hasDatabase,
+  canManageSources,
   createAction,
   updateAction,
   onClose,
@@ -249,7 +257,7 @@ function SourceModal({
   mode: "create" | "edit" | null;
   source: SourceRecord | null;
   snapshot: AdminSnapshot;
-  hasDatabase: boolean;
+  canManageSources: boolean;
   createAction: SourceAction;
   updateAction: SourceAction;
   onClose: () => void;
@@ -277,9 +285,10 @@ function SourceModal({
       onClose={onClose}
     >
       <SourceEditorForm
+        key={`${mode}-${initialValues.id || "new"}`}
         action={isEditMode ? updateAction : createAction}
         snapshot={snapshot}
-        hasDatabase={hasDatabase}
+        canManageSources={canManageSources}
         initialValues={initialValues}
         submitLabel={isEditMode ? "Save changes" : "Add source"}
         pendingLabel={isEditMode ? "Saving changes..." : "Adding source..."}
@@ -293,12 +302,12 @@ function SourceModal({
 
 function DeleteSourceModal({
   source,
-  hasDatabase,
+  canManageSources,
   deleteAction,
   onClose,
 }: {
   source: SourceRecord | null;
-  hasDatabase: boolean;
+  canManageSources: boolean;
   deleteAction: (formData: FormData) => Promise<void>;
   onClose: () => void;
 }) {
@@ -329,7 +338,7 @@ function DeleteSourceModal({
             <Button type="button" variant="ghost" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" variant="danger" disabled={!hasDatabase}>
+            <Button type="submit" variant="danger" disabled={!canManageSources}>
               Delete source
             </Button>
           </form>
@@ -342,7 +351,7 @@ function DeleteSourceModal({
 function SourceEditorForm({
   action,
   snapshot,
-  hasDatabase,
+  canManageSources,
   initialValues,
   submitLabel,
   pendingLabel,
@@ -352,7 +361,7 @@ function SourceEditorForm({
 }: {
   action: SourceAction;
   snapshot: AdminSnapshot;
-  hasDatabase: boolean;
+  canManageSources: boolean;
   initialValues: SourceFormValues;
   submitLabel: string;
   pendingLabel: string;
@@ -366,11 +375,6 @@ function SourceEditorForm({
   const [selectedExtractorProfile, setSelectedExtractorProfile] = useState<SourceFormValues["extractorProfile"]>(
     resolvedValues.extractorProfile,
   );
-
-  useEffect(() => {
-    setSelectedType(resolvedValues.type);
-    setSelectedExtractorProfile(resolvedValues.extractorProfile);
-  }, [resolvedValues.extractorProfile, resolvedValues.type, state.nonce]);
 
   useEffect(() => {
     if (state.status === "success") {
@@ -388,7 +392,7 @@ function SourceEditorForm({
 
       <div className="grid gap-1.5">
         <FieldLabel>Name</FieldLabel>
-        <Input name="name" placeholder="NavPro release notes" defaultValue={resolvedValues.name} disabled={!hasDatabase} required />
+        <Input name="name" placeholder="NavPro release notes" defaultValue={resolvedValues.name} disabled={!canManageSources} required />
         {state.fieldErrors.name ? <p className="text-xs text-[#991b1b]">{state.fieldErrors.name}</p> : null}
       </div>
 
@@ -398,7 +402,7 @@ function SourceEditorForm({
           <Select
             name="type"
             defaultValue={resolvedValues.type}
-            disabled={!hasDatabase}
+            disabled={!canManageSources}
             onChange={(event) => {
               const nextType = event.currentTarget.value as SourceFormValues["type"];
               setSelectedType(nextType);
@@ -413,7 +417,7 @@ function SourceEditorForm({
         </label>
         <label className="grid gap-1.5">
           <FieldLabel>Entity</FieldLabel>
-          <Select name="entityId" defaultValue={resolvedValues.entityId} disabled={!hasDatabase}>
+          <Select name="entityId" defaultValue={resolvedValues.entityId} disabled={!canManageSources}>
             <option value="">Unassigned</option>
             {snapshot.entities.map((entity) => (
               <option key={entity.id} value={entity.id}>
@@ -430,7 +434,7 @@ function SourceEditorForm({
           <Select
             name="extractorProfile"
             value={selectedExtractorProfile}
-            disabled={!hasDatabase}
+            disabled={!canManageSources}
             onChange={(event) => setSelectedExtractorProfile(event.currentTarget.value as SourceFormValues["extractorProfile"])}
           >
             {getExtractorOptions(selectedType).map((option) => (
@@ -445,7 +449,7 @@ function SourceEditorForm({
 
       <div className="grid gap-1.5">
         <FieldLabel>URL</FieldLabel>
-        <Input name="url" placeholder="https://..." defaultValue={resolvedValues.url} disabled={!hasDatabase} required />
+        <Input name="url" placeholder="https://..." defaultValue={resolvedValues.url} disabled={!canManageSources} required />
         <SourceTypeHint type={selectedType} />
         {state.fieldErrors.url ? <p className="text-xs text-[#991b1b]">{state.fieldErrors.url}</p> : null}
       </div>
@@ -453,7 +457,7 @@ function SourceEditorForm({
       <div className="grid gap-4 md:grid-cols-2">
         <label className="grid gap-1.5">
           <FieldLabel>Priority</FieldLabel>
-          <Input name="priority" type="number" min={0} max={100} defaultValue={resolvedValues.priority} disabled={!hasDatabase} />
+          <Input name="priority" type="number" min={0} max={100} defaultValue={resolvedValues.priority} disabled={!canManageSources} />
         </label>
         <label className="grid gap-1.5">
           <FieldLabel>Refresh</FieldLabel>
@@ -463,7 +467,7 @@ function SourceEditorForm({
             min={15}
             max={240}
             defaultValue={resolvedValues.refreshMinutes}
-            disabled={!hasDatabase}
+            disabled={!canManageSources}
           />
         </label>
       </div>
@@ -478,7 +482,7 @@ function SourceEditorForm({
                 name="defaultTagIds"
                 value={tag.id}
                 defaultChecked={resolvedValues.defaultTagIds.includes(tag.id)}
-                disabled={!hasDatabase}
+                disabled={!canManageSources}
               />
               {tag.name}
             </label>
@@ -487,7 +491,7 @@ function SourceEditorForm({
       </div>
 
       <label className="flex items-center gap-2 text-sm text-slate-600">
-        <input type="checkbox" name="isActive" defaultChecked={resolvedValues.isActive} disabled={!hasDatabase} />
+        <input type="checkbox" name="isActive" defaultChecked={resolvedValues.isActive} disabled={!canManageSources} />
         Enable immediately
       </label>
 
@@ -498,7 +502,7 @@ function SourceEditorForm({
           idleLabel={submitLabel}
           pendingLabel={pendingLabel}
           variant={submitVariant}
-          disabled={!hasDatabase}
+          disabled={!canManageSources}
         />
         {onCancel ? (
           <Button type="button" variant="ghost" onClick={onCancel}>
@@ -512,7 +516,7 @@ function SourceEditorForm({
 
 export function SourcesSettingsPanel({
   snapshot,
-  hasDatabase,
+  canManageSources,
   isDemoMode,
   createAction,
   updateAction,
@@ -520,7 +524,7 @@ export function SourcesSettingsPanel({
   deleteAction,
 }: {
   snapshot: AdminSnapshot;
-  hasDatabase: boolean;
+  canManageSources: boolean;
   isDemoMode: boolean;
   createAction: SourceAction;
   updateAction: SourceAction;
@@ -557,19 +561,6 @@ export function SourcesSettingsPanel({
     return haystack.includes(normalizedQuery);
   });
 
-  useEffect(() => {
-    if (modalMode === "edit" && activeSourceId && !activeSource) {
-      setModalMode(null);
-      setActiveSourceId(null);
-    }
-  }, [activeSource, activeSourceId, modalMode]);
-
-  useEffect(() => {
-    if (deleteCandidateId && !deleteCandidate) {
-      setDeleteCandidateId(null);
-    }
-  }, [deleteCandidate, deleteCandidateId]);
-
   function openCreateModal() {
     setActiveSourceId(null);
     setModalMode("create");
@@ -600,14 +591,14 @@ export function SourcesSettingsPanel({
               />
             </label>
           </div>
-          <Button type="button" variant="primary" disabled={!hasDatabase} onClick={openCreateModal}>
+          <Button type="button" variant="primary" disabled={!canManageSources} onClick={openCreateModal}>
             Add source
           </Button>
         </div>
 
         {isDemoMode ? (
           <div className="rounded-[20px] border border-dashed border-black/10 bg-black/[0.015] px-4 py-3 text-xs leading-6 text-slate-500">
-            Demo mode is read-only. Connect <code>DATABASE_URL</code> to manage sources.
+            Source management is read-only until <code>DATABASE_URL</code> is configured.
           </div>
         ) : null}
 
@@ -680,20 +671,20 @@ export function SourcesSettingsPanel({
                   </div>
 
                   <div className="flex shrink-0 flex-wrap gap-2">
-                    <Button type="button" variant="ghost" disabled={!hasDatabase} onClick={() => openEditModal(source.id)}>
+                    <Button type="button" variant="ghost" disabled={!canManageSources} onClick={() => openEditModal(source.id)}>
                       Edit
                     </Button>
                     <form action={toggleAction}>
                       <input type="hidden" name="id" value={source.id} />
                       <input type="hidden" name="isActive" value={String(!source.isActive)} />
-                      <Button type="submit" variant="secondary" disabled={!hasDatabase}>
+                      <Button type="submit" variant="secondary" disabled={!canManageSources}>
                         {source.isActive ? "Pause" : "Enable"}
                       </Button>
                     </form>
                     <Button
                       type="button"
                       variant="danger"
-                      disabled={!hasDatabase}
+                      disabled={!canManageSources}
                       onClick={() => setDeleteCandidateId(source.id)}
                     >
                       Delete
@@ -716,14 +707,14 @@ export function SourcesSettingsPanel({
         mode={modalMode}
         source={modalMode === "edit" ? activeSource : null}
         snapshot={snapshot}
-        hasDatabase={hasDatabase}
+        canManageSources={canManageSources}
         createAction={createAction}
         updateAction={updateAction}
         onClose={closeSourceModal}
       />
       <DeleteSourceModal
         source={deleteCandidate}
-        hasDatabase={hasDatabase}
+        canManageSources={canManageSources}
         deleteAction={deleteAction}
         onClose={() => setDeleteCandidateId(null)}
       />

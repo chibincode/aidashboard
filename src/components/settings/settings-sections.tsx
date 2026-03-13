@@ -79,9 +79,10 @@ export function SourcesSettingsSection({ snapshot }: { snapshot: AdminSnapshot }
   return (
     <div>
       <SettingsSectionHeader title="Sources" description="Inputs, priorities, refresh cadence." />
+      <SettingsModeNote />
       <SourcesSettingsPanel
         snapshot={snapshot}
-        hasDatabase={appConfig.hasDatabase}
+        canManageSources={appConfig.hasDatabase}
         isDemoMode={appConfig.isDemoMode}
         createAction={createSourceAction}
         updateAction={updateSourceAction}

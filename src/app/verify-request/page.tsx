@@ -6,7 +6,7 @@ export default function VerifyRequestPage() {
   return (
     <AppShell
       title="Check your inbox"
-      subtitle="We sent a sign-in link to your email. Open it on the same browser to attach your workspace membership and continue."
+      subtitle="We sent a Supabase magic link to your owner email. Open it on the same browser to finish the sign-in."
     >
       <div className="mx-auto w-full max-w-2xl">
         <Card className="p-8 text-center">
@@ -14,7 +14,7 @@ export default function VerifyRequestPage() {
             <MailCheck className="size-6" />
           </div>
           <p className="text-sm leading-7 text-slate-600">
-            If the link does not arrive, confirm the email is invited and that the resend configuration is valid.
+            If the link does not arrive, confirm the email matches `INVITE_ALLOWLIST` and that Supabase Auth email is configured.
           </p>
         </Card>
       </div>

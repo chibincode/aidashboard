@@ -3,22 +3,37 @@ import { createEmptySourceFormValues, createSourceMutationState } from "@/lib/so
 
 const {
   createSourceRecord,
+  deleteEntityRecord,
+  deleteRuleRecord,
+  deleteSourceRecord,
+  deleteTagRecord,
   updateSourceRecord,
   getSourceRecordById,
   syncSourceById,
   revalidatePath,
+  cookieStore,
+  requireOwnerActionSession,
 } = vi.hoisted(() => ({
   createSourceRecord: vi.fn(),
+  deleteEntityRecord: vi.fn(),
+  deleteRuleRecord: vi.fn(),
+  deleteSourceRecord: vi.fn(),
+  deleteTagRecord: vi.fn(),
   updateSourceRecord: vi.fn(),
   getSourceRecordById: vi.fn(),
   syncSourceById: vi.fn(),
   revalidatePath: vi.fn(),
+  cookieStore: {
+    set: vi.fn(),
+  },
+  requireOwnerActionSession: vi.fn(async () => ({ user: { id: "usr_1", role: "owner" } })),
 }));
 
 vi.mock("@/lib/env", () => ({
   appConfig: {
     hasDatabase: true,
     isDemoMode: false,
+    personalOwnerEmail: "owner@example.com",
   },
 }));
 
@@ -26,8 +41,16 @@ vi.mock("next/cache", () => ({
   revalidatePath,
 }));
 
+vi.mock("next/headers", () => ({
+  cookies: vi.fn(async () => cookieStore),
+}));
+
 vi.mock("@/lib/ingestion/sync", () => ({
   syncSourceById,
+}));
+
+vi.mock("@/lib/auth-guards", () => ({
+  requireOwnerActionSession,
 }));
 
 vi.mock("@/lib/repositories/app-repository", () => ({
@@ -35,10 +58,10 @@ vi.mock("@/lib/repositories/app-repository", () => ({
   createRuleRecord: vi.fn(),
   createSourceRecord,
   createTagRecord: vi.fn(),
-  deleteEntityRecord: vi.fn(),
-  deleteRuleRecord: vi.fn(),
-  deleteSourceRecord: vi.fn(),
-  deleteTagRecord: vi.fn(),
+  deleteEntityRecord,
+  deleteRuleRecord,
+  deleteSourceRecord,
+  deleteTagRecord,
   getSourceRecordById,
   toggleRuleRecord: vi.fn(),
   toggleSourceRecord: vi.fn(),
@@ -78,6 +101,7 @@ describe("admin source actions", () => {
         }),
       }),
     );
+    expect(requireOwnerActionSession).toHaveBeenCalled();
     expect(syncSourceById).toHaveBeenCalledWith("source_openai");
     expect(result.status).toBe("success");
     expect(result.message).toContain("validated");
@@ -182,5 +206,94 @@ describe("admin source actions", () => {
       }),
     );
     expect(result.status).toBe("success");
+  });
+
+  it("stores normalized X config on create and validates immediately", async () => {
+    createSourceRecord.mockResolvedValue("source_riyvir");
+    syncSourceById.mockResolvedValue({ sourceId: "source_riyvir", warnings: [] });
+
+    const { createSourceAction } = await import("@/actions/admin");
+    const formData = new FormData();
+    formData.set("name", "Riyvir");
+    formData.set("type", "x");
+    formData.set("url", "https://x.com/Riyvir");
+    formData.set("priority", "95");
+    formData.set("refreshMinutes", "30");
+    formData.set("isActive", "on");
+
+    const result = await createSourceAction(
+      createSourceMutationState(createEmptySourceFormValues()),
+      formData,
+    );
+
+    expect(createSourceRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: "https://x.com/Riyvir",
+        config: {
+          handle: "Riyvir",
+          rssUrl: "https://nitter.net/Riyvir/rss",
+          inputUrl: "https://x.com/Riyvir",
+          handleUrl: "https://x.com/Riyvir",
+          itemType: "post",
+        },
+      }),
+    );
+    expect(syncSourceById).toHaveBeenCalledWith("source_riyvir");
+    expect(result.status).toBe("success");
+  });
+
+  it("sets a flash toast when deleting a source", async () => {
+    const { deleteSourceAction } = await import("@/actions/admin");
+    const formData = new FormData();
+    formData.set("id", "source_openai");
+
+    await deleteSourceAction(formData);
+
+    expect(deleteSourceRecord).toHaveBeenCalledWith("source_openai");
+    expect(cookieStore.set).toHaveBeenCalledWith(
+      "settings-toast",
+      expect.any(String),
+      expect.objectContaining({
+        path: "/",
+        maxAge: 60,
+        sameSite: "lax",
+      }),
+    );
+    expect(revalidatePath).toHaveBeenCalledWith("/admin/sources");
+  });
+
+  it("sets a flash toast when deleting other settings resources", async () => {
+    const { deleteEntityAction, deleteTagAction, deleteRuleAction } = await import("@/actions/admin");
+
+    const entityFormData = new FormData();
+    entityFormData.set("id", "entity_1");
+    await deleteEntityAction(entityFormData);
+
+    const tagFormData = new FormData();
+    tagFormData.set("id", "tag_1");
+    await deleteTagAction(tagFormData);
+
+    const ruleFormData = new FormData();
+    ruleFormData.set("id", "rule_1");
+    await deleteRuleAction(ruleFormData);
+
+    expect(deleteEntityRecord).toHaveBeenCalledWith("entity_1");
+    expect(deleteTagRecord).toHaveBeenCalledWith("tag_1");
+    expect(deleteRuleRecord).toHaveBeenCalledWith("rule_1");
+    expect(cookieStore.set).toHaveBeenCalledTimes(3);
+    expect(revalidatePath).toHaveBeenCalledWith("/admin/entities");
+    expect(revalidatePath).toHaveBeenCalledWith("/admin/tags");
+    expect(revalidatePath).toHaveBeenCalledWith("/admin/rules");
+  });
+
+  it("blocks settings mutations when the owner session is missing", async () => {
+    requireOwnerActionSession.mockRejectedValueOnce(new Error("Unauthorized"));
+
+    const { deleteSourceAction } = await import("@/actions/admin");
+    const formData = new FormData();
+    formData.set("id", "source_openai");
+
+    await expect(deleteSourceAction(formData)).rejects.toThrow("Unauthorized");
+    expect(deleteSourceRecord).not.toHaveBeenCalled();
   });
 });

@@ -1,4 +1,7 @@
+import { loadLocalEnvFiles } from "./src/lib/env-file";
 import type { Config } from "drizzle-kit";
+
+loadLocalEnvFiles();
 
 if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL is required to run Drizzle commands.");

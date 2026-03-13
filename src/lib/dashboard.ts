@@ -171,6 +171,7 @@ export function buildDashboardSnapshot(args: {
 
   return {
     workspace: args.workspace,
+    viewer: args.viewer,
     activeView,
     feedItems: getFeedItemsForView(activeView, sections, filtered),
     sections,

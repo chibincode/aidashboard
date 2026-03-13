@@ -2,9 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 import { seedSources } from "@/lib/seed";
 import {
   getSourceExtractorProfile,
+  getXSourceConfig,
   getYouTubeSourceConfig,
   isGallerySource,
   normalizeSourceInput,
+  normalizeXSourceInput,
   normalizeYouTubeSourceInput,
   SourceValidationError,
 } from "@/lib/source-normalization";
@@ -117,6 +119,66 @@ describe("YouTube source normalization", () => {
         itemType: "article",
       },
     });
+  });
+
+  it("normalizes an X profile url into a typed X config", () => {
+    const result = normalizeXSourceInput("https://x.com/Riyvir");
+
+    expect(result).toEqual({
+      url: "https://x.com/Riyvir",
+      config: {
+        handle: "Riyvir",
+        rssUrl: "https://nitter.net/Riyvir/rss",
+        inputUrl: "https://x.com/Riyvir",
+        handleUrl: "https://x.com/Riyvir",
+        itemType: "post",
+      },
+    });
+  });
+
+  it("normalizes twitter.com profile urls into the canonical x.com url", async () => {
+    const result = await normalizeSourceInput({
+      type: "x",
+      url: "https://twitter.com/andy_hooke",
+    });
+
+    expect(result).toEqual({
+      url: "https://x.com/andy_hooke",
+      config: {
+        handle: "andy_hooke",
+        rssUrl: "https://nitter.net/andy_hooke/rss",
+        inputUrl: "https://twitter.com/andy_hooke",
+        handleUrl: "https://x.com/andy_hooke",
+        itemType: "post",
+      },
+    });
+  });
+
+  it("hydrates legacy X sources that only stored the profile url", () => {
+    const result = getXSourceConfig({
+      url: "https://x.com/Riyvir",
+      config: {
+        avatarUrl: "https://pbs.twimg.com/profile_images/example.jpg",
+      },
+    });
+
+    expect(result).toEqual({
+      handle: "Riyvir",
+      rssUrl: "https://nitter.net/Riyvir/rss",
+      inputUrl: "https://x.com/Riyvir",
+      handleUrl: "https://x.com/Riyvir",
+      itemType: "post",
+      avatarUrl: "https://pbs.twimg.com/profile_images/example.jpg",
+    });
+  });
+
+  it("rejects X status urls that are not profile roots", async () => {
+    await expect(
+      normalizeSourceInput({
+        type: "x",
+        url: "https://x.com/andy_hooke/status/123",
+      }),
+    ).rejects.toBeInstanceOf(SourceValidationError);
   });
 
   it("identifies seeded gallery sources correctly", () => {

@@ -1,12 +1,4 @@
-import type {
-  AdminSnapshot,
-  DashboardFilters,
-  DashboardSnapshot,
-  FeedItemRecord,
-  SourceRecord,
-  UserItemStateRecord,
-  ViewerContext,
-} from "@/lib/domain";
+import type { AdminSnapshot, DashboardFilters, DashboardSnapshot, FeedItemRecord, SourceRecord, UserItemStateRecord, ViewerContext } from "@/lib/domain";
 import { buildDashboardSnapshot } from "@/lib/dashboard";
 import { ingestSource } from "@/lib/ingestion";
 import {
@@ -46,12 +38,12 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T) {
   });
 }
 
-async function getLiveDemoFeedItems() {
+async function getLiveDemoFeedItems(sources: SourceRecord[]) {
   if (process.env.NODE_ENV === "test") {
     return [];
   }
 
-  const liveSources = seedSources.filter(isLiveDemoSource);
+  const liveSources = sources.filter(isLiveDemoSource);
   if (liveSources.length === 0) {
     return [];
   }
@@ -106,12 +98,13 @@ export async function buildDemoDashboard(
   viewer: ViewerContext,
   userStates: UserItemStateRecord[],
   filters: DashboardFilters,
+  sources: SourceRecord[] = seedSources,
 ): Promise<DashboardSnapshot> {
-  const liveFeedItems = await getLiveDemoFeedItems();
+  const liveFeedItems = await getLiveDemoFeedItems(sources);
 
   return buildDashboardSnapshot({
     workspace: defaultWorkspace,
-    sources: seedSources,
+    sources,
     entities: seedEntities,
     tags: seedTags,
     feedItems: [...liveFeedItems, ...seedFeedItems],
@@ -121,10 +114,10 @@ export async function buildDemoDashboard(
   });
 }
 
-export function buildDemoAdminSnapshot(): AdminSnapshot {
+export function buildDemoAdminSnapshot(sources: SourceRecord[] = seedSources): AdminSnapshot {
   return {
     workspace: defaultWorkspace,
-    sources: seedSources,
+    sources,
     entities: seedEntities,
     tags: seedTags,
     rules: seedRules,

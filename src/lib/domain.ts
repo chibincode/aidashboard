@@ -100,12 +100,20 @@ export interface YouTubeSourceConfig extends Record<string, unknown> {
   itemType?: "video";
 }
 
+export interface XSourceConfig extends GenericSourceConfig {
+  handle: string;
+  rssUrl: string;
+  inputUrl?: string;
+  handleUrl?: string;
+  itemType?: "post";
+}
+
 export interface GallerySourceConfig extends GenericSourceConfig {
   extractorProfile: "gallery-rss" | "a1-gallery-home";
   itemType?: "article";
 }
 
-export type SourceConfig = GenericSourceConfig | GallerySourceConfig | YouTubeSourceConfig;
+export type SourceConfig = GenericSourceConfig | GallerySourceConfig | YouTubeSourceConfig | XSourceConfig;
 
 export interface SourceRecord {
   id: string;
@@ -245,6 +253,7 @@ export interface AdminSnapshot {
 
 export interface DashboardSnapshot {
   workspace: WorkspaceRecord;
+  viewer: ViewerContext;
   activeView: DashboardView;
   feedItems: DashboardItem[];
   sections: DashboardSection[];

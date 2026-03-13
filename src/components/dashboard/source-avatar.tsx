@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 
 export function SourceAvatar({
@@ -14,21 +14,18 @@ export function SourceAvatar({
   className?: string;
   fallbackClassName?: string;
 }) {
-  const [imageFailed, setImageFailed] = useState(false);
-
-  useEffect(() => {
-    setImageFailed(false);
-  }, [src]);
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const showFallback = !src || failedSrc === src;
 
   return (
     <span
       className={cn(
         "inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full text-sm font-semibold shadow-[0_16px_32px_-24px_rgba(15,23,42,0.8)]",
-        !src || imageFailed ? fallbackClassName : "bg-white",
+        showFallback ? fallbackClassName : "bg-white",
         className,
       )}
     >
-      {src && !imageFailed ? (
+      {!showFallback ? (
         <img
           src={src}
           alt={`${name} avatar`}
@@ -36,7 +33,7 @@ export function SourceAvatar({
           loading="lazy"
           decoding="async"
           referrerPolicy="no-referrer"
-          onError={() => setImageFailed(true)}
+          onError={() => setFailedSrc(src)}
         />
       ) : (
         name.slice(0, 1).toUpperCase()

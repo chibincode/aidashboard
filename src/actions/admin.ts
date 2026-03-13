@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
 import {
   createEntityRecord,
   createRuleRecord,
@@ -18,6 +19,7 @@ import {
 } from "@/lib/repositories/app-repository";
 import { syncSourceById } from "@/lib/ingestion/sync";
 import { appConfig } from "@/lib/env";
+import { requireOwnerActionSession } from "@/lib/auth-guards";
 import { normalizeSourceInput, SourceValidationError } from "@/lib/source-normalization";
 import {
   createEmptySourceFormValues,
@@ -25,6 +27,7 @@ import {
   type SourceFormValues,
   type SourceMutationState,
 } from "@/lib/source-forms";
+import { createSettingsToast, serializeSettingsToast, SETTINGS_TOAST_COOKIE } from "@/lib/settings-toast";
 import { splitCommaList } from "@/lib/utils";
 
 function readSourceMutationValues(formData: FormData): SourceFormValues {
@@ -76,6 +79,7 @@ export async function createSourceAction(
   previousState: SourceMutationState,
   formData: FormData,
 ): Promise<SourceMutationState> {
+  await requireOwnerActionSession();
   const values = readSourceMutationValues(formData);
 
   if (!values.name) {
@@ -91,13 +95,6 @@ export async function createSourceAction(
       status: "error",
       message: "Source URL is required.",
       fieldErrors: { url: "Source URL is required." },
-    });
-  }
-
-  if (!appConfig.hasDatabase) {
-    return withSourceState(previousState, values, {
-      status: "error",
-      message: "Demo mode is read-only. Connect DATABASE_URL to manage sources.",
     });
   }
 
@@ -123,7 +120,17 @@ export async function createSourceAction(
     revalidatePath("/admin/sources");
     revalidatePath("/");
 
-    const validation = sourceId ? await persistAndValidateSource(sourceId, "created") : { status: "error" as const, message: "Source was not created." };
+    const validation = sourceId
+      ? appConfig.hasDatabase
+        ? await persistAndValidateSource(sourceId, "created")
+        : {
+            status: "success" as const,
+            message: "Source created. Demo-mode changes are stored in this browser.",
+          }
+      : {
+          status: "error" as const,
+          message: "Source was not created.",
+        };
 
     revalidatePath("/admin/sources");
     revalidatePath("/");
@@ -153,6 +160,7 @@ export async function updateSourceAction(
   previousState: SourceMutationState,
   formData: FormData,
 ): Promise<SourceMutationState> {
+  await requireOwnerActionSession();
   const values = readSourceMutationValues(formData);
 
   if (!values.id) {
@@ -175,13 +183,6 @@ export async function updateSourceAction(
       status: "error",
       message: "Source URL is required.",
       fieldErrors: { url: "Source URL is required." },
-    });
-  }
-
-  if (!appConfig.hasDatabase) {
-    return withSourceState(previousState, values, {
-      status: "error",
-      message: "Demo mode is read-only. Connect DATABASE_URL to manage sources.",
     });
   }
 
@@ -217,7 +218,12 @@ export async function updateSourceAction(
     revalidatePath("/admin/sources");
     revalidatePath("/");
 
-    const validation = await persistAndValidateSource(sourceId, "updated");
+    const validation = appConfig.hasDatabase
+      ? await persistAndValidateSource(sourceId, "updated")
+      : {
+          status: "success" as const,
+          message: "Source updated. Demo-mode changes are stored in this browser.",
+        };
 
     revalidatePath("/admin/sources");
     revalidatePath("/");
@@ -243,18 +249,27 @@ export async function updateSourceAction(
 }
 
 export async function toggleSourceAction(formData: FormData) {
+  await requireOwnerActionSession();
   await toggleSourceRecord(String(formData.get("id")), formData.get("isActive") === "true");
   revalidatePath("/admin/sources");
   revalidatePath("/");
 }
 
 export async function deleteSourceAction(formData: FormData) {
+  await requireOwnerActionSession();
   await deleteSourceRecord(String(formData.get("id")));
+  const cookieStore = await cookies();
+  cookieStore.set(SETTINGS_TOAST_COOKIE, serializeSettingsToast(createSettingsToast("Source deleted.")), {
+    path: "/",
+    maxAge: 60,
+    sameSite: "lax",
+  });
   revalidatePath("/admin/sources");
   revalidatePath("/");
 }
 
 export async function createEntityAction(formData: FormData) {
+  await requireOwnerActionSession();
   await createEntityRecord({
     name: String(formData.get("name") ?? ""),
     kind: String(formData.get("kind") ?? "topic") as "topic" | "competitor" | "product",
@@ -267,12 +282,20 @@ export async function createEntityAction(formData: FormData) {
 }
 
 export async function deleteEntityAction(formData: FormData) {
+  await requireOwnerActionSession();
   await deleteEntityRecord(String(formData.get("id")));
+  const cookieStore = await cookies();
+  cookieStore.set(SETTINGS_TOAST_COOKIE, serializeSettingsToast(createSettingsToast("Entity deleted.")), {
+    path: "/",
+    maxAge: 60,
+    sameSite: "lax",
+  });
   revalidatePath("/admin/entities");
   revalidatePath("/");
 }
 
 export async function createTagAction(formData: FormData) {
+  await requireOwnerActionSession();
   await createTagRecord({
     name: String(formData.get("name") ?? ""),
     color: String(formData.get("color") ?? "#197d71"),
@@ -285,18 +308,27 @@ export async function createTagAction(formData: FormData) {
 }
 
 export async function toggleTagAction(formData: FormData) {
+  await requireOwnerActionSession();
   await toggleTagRecord(String(formData.get("id")), formData.get("isActive") === "true");
   revalidatePath("/admin/tags");
   revalidatePath("/");
 }
 
 export async function deleteTagAction(formData: FormData) {
+  await requireOwnerActionSession();
   await deleteTagRecord(String(formData.get("id")));
+  const cookieStore = await cookies();
+  cookieStore.set(SETTINGS_TOAST_COOKIE, serializeSettingsToast(createSettingsToast("Tag deleted.")), {
+    path: "/",
+    maxAge: 60,
+    sameSite: "lax",
+  });
   revalidatePath("/admin/tags");
   revalidatePath("/");
 }
 
 export async function createRuleAction(formData: FormData) {
+  await requireOwnerActionSession();
   await createRuleRecord({
     name: String(formData.get("name") ?? ""),
     sourceId: String(formData.get("sourceId") ?? "") || null,
@@ -312,13 +344,21 @@ export async function createRuleAction(formData: FormData) {
 }
 
 export async function toggleRuleAction(formData: FormData) {
+  await requireOwnerActionSession();
   await toggleRuleRecord(String(formData.get("id")), formData.get("isActive") === "true");
   revalidatePath("/admin/rules");
   revalidatePath("/");
 }
 
 export async function deleteRuleAction(formData: FormData) {
+  await requireOwnerActionSession();
   await deleteRuleRecord(String(formData.get("id")));
+  const cookieStore = await cookies();
+  cookieStore.set(SETTINGS_TOAST_COOKIE, serializeSettingsToast(createSettingsToast("Rule deleted.")), {
+    path: "/",
+    maxAge: 60,
+    sameSite: "lax",
+  });
   revalidatePath("/admin/rules");
   revalidatePath("/");
 }

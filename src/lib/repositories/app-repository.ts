@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import type {
   AdminSnapshot,
@@ -9,9 +10,15 @@ import type {
   ViewerContext,
 } from "@/lib/domain";
 import type { DashboardSnapshot, SourceRecord } from "@/lib/domain";
-import { buildDemoAdminSnapshot, buildDemoDashboard, readDemoStatesFromCookie, serializeDemoStates, upsertDemoState } from "@/lib/demo-data";
+import {
+  buildDemoAdminSnapshot,
+  buildDemoDashboard,
+  readDemoStatesFromCookie,
+  serializeDemoStates,
+  upsertDemoState,
+} from "@/lib/demo-data";
 import { buildDashboardSnapshot } from "@/lib/dashboard";
-import { auth } from "@/auth";
+import { getAppSession } from "@/lib/auth-guards";
 import { appConfig } from "@/lib/env";
 import { requireDb } from "@/lib/db";
 import {
@@ -26,8 +33,13 @@ import {
   userItemStates,
   workspaces,
 } from "@/lib/db/schema";
-import { DEMO_EMAIL, DEMO_USER_ID, DEMO_WORKSPACE_ID, defaultWorkspace } from "@/lib/seed";
-import { shouldAutoApplyWebsiteInspirationTag, WEBSITE_INSPIRATION_TAG_SLUG } from "@/lib/source-normalization";
+import { DEMO_EMAIL, DEMO_USER_ID, DEMO_WORKSPACE_ID, defaultWorkspace, seedSources, seedTags } from "@/lib/seed";
+import {
+  getXSourceConfig,
+  getYouTubeSourceConfig,
+  shouldAutoApplyWebsiteInspirationTag,
+  WEBSITE_INSPIRATION_TAG_SLUG,
+} from "@/lib/source-normalization";
 import { slugify } from "@/lib/utils";
 
 const ITEM_STATE_COOKIE = "signal-deck-item-states";
@@ -52,11 +64,9 @@ export async function getViewerContext(): Promise<ViewerContext> {
     };
   }
 
-  const session = await auth();
-  const userId = session?.user?.id;
-  const workspaceId = session?.user?.defaultWorkspaceId;
+  const session = await getAppSession();
 
-  if (!userId || !workspaceId || !session.user.email) {
+  if (!session) {
     return {
       workspaceId: DEMO_WORKSPACE_ID,
       userId: DEMO_USER_ID,
@@ -66,10 +76,18 @@ export async function getViewerContext(): Promise<ViewerContext> {
     };
   }
 
+  const userId = session.user.id;
+  const workspaceId = session.user.defaultWorkspaceId;
+  const email = session.user.email;
+
+  if (!userId || !workspaceId || !email || session.user.role !== "owner") {
+    redirect("/login");
+  }
+
   return {
     workspaceId,
     userId,
-    email: session.user.email,
+    email,
     isAuthenticated: true,
     lastVisitAt,
   };
@@ -84,9 +102,17 @@ function toSourceRecord(
   source: typeof sources.$inferSelect,
   defaultTagIds: string[],
 ): SourceRecord {
+  const rawConfig = (source.config as Record<string, unknown>) ?? {};
+  const config =
+    source.type === "youtube"
+      ? getYouTubeSourceConfig({ url: source.url, config: rawConfig }) ?? rawConfig
+      : source.type === "x"
+        ? getXSourceConfig({ url: source.url, config: rawConfig }) ?? rawConfig
+        : rawConfig;
+
   return {
     ...source,
-    config: (source.config as Record<string, unknown>) ?? {},
+    config,
     defaultTagIds,
   };
 }
@@ -95,7 +121,8 @@ export async function getDashboardSnapshot(filters: DashboardFilters): Promise<D
   const viewer = await getViewerContext();
 
   if (!appConfig.hasDatabase) {
-    return buildDemoDashboard(viewer, await loadDemoStates(), filters);
+    const demoStates = await loadDemoStates();
+    return buildDemoDashboard(viewer, demoStates, filters);
   }
 
   const db = requireDb();
@@ -227,7 +254,7 @@ export async function getAdminSnapshot(): Promise<AdminSnapshot> {
 
 export async function getSourceRecordById(id: string): Promise<SourceRecord | null> {
   if (!appConfig.hasDatabase) {
-    return buildDemoAdminSnapshot().sources.find((source) => source.id === id) ?? null;
+    return seedSources.find((source) => source.id === id) ?? null;
   }
 
   const viewer = await getViewerContext();
@@ -454,6 +481,15 @@ async function resolveSourceDefaultTagIds(
     return [...resolvedTagIds];
   }
 
+  if (!appConfig.hasDatabase) {
+    const websiteInspirationTag = seedTags.find((tag) => tag.slug === WEBSITE_INSPIRATION_TAG_SLUG);
+    if (websiteInspirationTag?.id) {
+      resolvedTagIds.add(websiteInspirationTag.id);
+    }
+
+    return [...resolvedTagIds];
+  }
+
   const db = requireDb();
   const websiteInspirationTag = await db.query.tags.findFirst({
     where: and(eq(tags.workspaceId, workspaceId), eq(tags.slug, WEBSITE_INSPIRATION_TAG_SLUG)),
@@ -571,9 +607,9 @@ export async function deleteRuleRecord(id: string) {
   await db.delete(tagRules).where(and(eq(tagRules.id, id), eq(tagRules.workspaceId, workspaceId)));
 }
 
-export async function listActiveSourcesForIngestion() {
+export async function listActiveSourcesForIngestion(): Promise<SourceRecord[]> {
   if (!appConfig.hasDatabase) {
-    return buildDemoAdminSnapshot().sources.filter((source) => source.isActive);
+    return seedSources.filter((source) => source.isActive);
   }
 
   const db = requireDb();

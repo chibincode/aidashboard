@@ -5,6 +5,7 @@ import type {
   SourceExtractorProfile,
   SourceRecord,
   SourceType,
+  XSourceConfig,
   YouTubeSourceConfig,
 } from "@/lib/domain";
 
@@ -92,6 +93,32 @@ function assertValidYouTubeUrl(url: string) {
   return parsed;
 }
 
+function assertValidXUrl(url: string) {
+  const parsed = assertValidHttpsUrl(url);
+
+  if (!["x.com", "www.x.com", "twitter.com", "www.twitter.com"].includes(parsed.hostname)) {
+    throw new SourceValidationError("Use an X profile URL like https://x.com/handle.");
+  }
+
+  return parsed;
+}
+
+function getHandleFromXPath(pathname: string) {
+  const trimmedPath = pathname.replace(/\/+$/, "");
+  const segments = trimmedPath.split("/").filter(Boolean);
+
+  if (segments.length !== 1) {
+    return null;
+  }
+
+  const handle = segments[0]?.replace(/^@/, "");
+  if (!handle || !/^[A-Za-z0-9_]{1,15}$/.test(handle)) {
+    return null;
+  }
+
+  return handle;
+}
+
 function buildYouTubeConfig(
   channelId: string,
   inputUrl: string,
@@ -106,6 +133,17 @@ function buildYouTubeConfig(
     handleUrl: options?.handleUrl,
     inputUrl,
     itemType: "video",
+  };
+}
+
+function buildXConfig(inputUrl: string, handle: string, existingConfig?: Record<string, unknown>): XSourceConfig {
+  return {
+    ...(existingConfig ?? {}),
+    handle,
+    rssUrl: `https://nitter.net/${handle}/rss`,
+    inputUrl,
+    handleUrl: `https://x.com/${handle}`,
+    itemType: "post",
   };
 }
 
@@ -335,6 +373,73 @@ export function getYouTubeSourceConfig(
   return coerceLegacyYouTubeConfig(source);
 }
 
+function coerceLegacyXConfig(
+  source: Pick<SourceRecord, "url" | "config">,
+): XSourceConfig | null {
+  const config = (source.config ?? {}) as Record<string, unknown>;
+  const handle = typeof config.handle === "string" ? config.handle.replace(/^@/, "") : null;
+  const rssUrl = typeof config.rssUrl === "string" ? config.rssUrl : null;
+  const inputUrl = typeof config.inputUrl === "string" ? config.inputUrl : source.url;
+  const handleUrl =
+    typeof config.handleUrl === "string"
+      ? config.handleUrl
+      : handle
+        ? `https://x.com/${handle}`
+        : undefined;
+
+  if (handle && rssUrl) {
+    return {
+      ...config,
+      handle,
+      rssUrl,
+      inputUrl,
+      handleUrl,
+      itemType: "post",
+    };
+  }
+
+  try {
+    return normalizeXSourceInput(source.url, {
+      type: "x",
+      config,
+    }).config;
+  } catch {
+    return null;
+  }
+}
+
+export function getXSourceConfig(
+  source: Pick<SourceRecord, "url" | "config">,
+): XSourceConfig | null {
+  return coerceLegacyXConfig(source);
+}
+
+export function normalizeXSourceInput(
+  rawUrl: string,
+  existingSource?: Pick<SourceRecord, "type" | "config"> | null,
+): { url: string; config: XSourceConfig } {
+  const normalizedUrl = normalizeUrlValue(rawUrl);
+
+  if (!normalizedUrl) {
+    throw new SourceValidationError("URL is required.");
+  }
+
+  const parsedUrl = assertValidXUrl(normalizedUrl);
+  const handle = getHandleFromXPath(parsedUrl.pathname);
+
+  if (!handle) {
+    throw new SourceValidationError("Use an X profile URL like https://x.com/handle.");
+  }
+
+  const existingConfig =
+    existingSource?.type === "x" ? ((existingSource.config ?? {}) as Record<string, unknown>) : undefined;
+
+  return {
+    url: `https://x.com/${handle}`,
+    config: buildXConfig(normalizedUrl, handle, existingConfig),
+  };
+}
+
 export async function normalizeSourceInput(
   input: NormalizeSourceInput,
 ): Promise<{ url: string; config: SourceConfig }> {
@@ -346,6 +451,10 @@ export async function normalizeSourceInput(
 
   if (input.type === "youtube") {
     return normalizeYouTubeSourceInput(normalizedUrl, input.fetchImpl);
+  }
+
+  if (input.type === "x") {
+    return normalizeXSourceInput(normalizedUrl, input.existingSource);
   }
 
   assertValidHttpsUrl(normalizedUrl);

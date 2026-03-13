@@ -1,6 +1,6 @@
 # Signal Deck
 
-AI UX/UI and competitor intelligence workbench built with `Next.js 16`, `TypeScript`, `Tailwind CSS`, `Drizzle ORM`, `Auth.js`, and `Inngest`.
+AI UX/UI and competitor intelligence workbench built with `Next.js 16`, `TypeScript`, `Tailwind CSS`, `Drizzle ORM`, `Supabase Auth`, and `Inngest`.
 
 ## What is implemented
 
@@ -35,14 +35,14 @@ AI UX/UI and competitor intelligence workbench built with `Next.js 16`, `TypeScr
   - YouTube feed parsing
   - X via controllable RSS-compatible adapter
 - Inngest scheduled fan-out skeleton for 30-minute source sync
-- Invite-only Auth.js email login scaffold using Resend
+- Invite-only Supabase Auth magic-link login for a single owner account
 
 ## Stack
 
 - App: `Next.js App Router`
 - Styling: `Tailwind CSS v4`
 - Database: `Postgres + Drizzle ORM`
-- Auth: `Auth.js`
+- Auth: `Supabase Auth`
 - Jobs: `Inngest`
 - Tests: `Vitest`
 
@@ -60,37 +60,50 @@ npm install
 cp .env.example .env.local
 ```
 
-3. Run the app in demo mode:
-
-```bash
-npm run dev
-```
-
-This works without a database. You can browse the dashboard and test read/save interactions immediately.
-
-## Switch to live data mode
-
-Set these values in `.env.local`:
+3. Configure Postgres in `.env.local`:
 
 ```bash
 DATABASE_URL=...
-AUTH_SECRET=...
-AUTH_TRUST_HOST=true
-RESEND_API_KEY=...
-AUTH_EMAIL_FROM=...
-INVITE_ALLOWLIST=you@company.com,another@company.com
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=...
+INVITE_ALLOWLIST=you@company.com
 INNGEST_EVENT_KEY=...
 INNGEST_SIGNING_KEY=...
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 NEXT_PUBLIC_APP_NAME=Signal Deck
 ```
 
-Then initialize the database:
+4. In Supabase Auth, add your local confirm URL to the allowed redirects:
+
+```text
+http://localhost:3000/auth/confirm
+```
+
+5. Initialize the database:
 
 ```bash
 npm run db:push
 npm run db:seed
 ```
+
+6. Start the app:
+
+```bash
+npm run dev
+```
+
+`DATABASE_URL` is the intended local-development path. Without it, the dashboard can still render seeded preview data, but admin/settings editing stays read-only.
+
+For a second machine, you can skip manual `.env.local` editing and run:
+
+```bash
+npm run setup:device
+```
+
+The script will prompt for `DATABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, and
+`INVITE_ALLOWLIST`, write `.env.local`, and run `db:push`.
+
+For personal-account login, configure Supabase Auth email, set the confirm redirect URL, and keep exactly one owner email in `INVITE_ALLOWLIST`.
 
 ## Scripts
 
@@ -107,7 +120,8 @@ npm run db:seed
 
 ## Notes
 
-- Demo mode is intentionally read-only for admin mutations. The control room UI is live, but create/edit/delete actions require `DATABASE_URL`.
+- This repo is DB-first. Treat the no-`DATABASE_URL` path as a preview fallback, not the primary workflow.
+- Admin mutations, including source management, require `DATABASE_URL`.
 - `X` support is implemented as a controllable adapter surface. For v1, the safest path is an RSS-compatible bridge.
 - The scheduled ingestion route is ready at `/api/inngest`, and source sync now records `feed_items`, source links, tag links and `ingestion_runs` when Postgres is configured.
 
