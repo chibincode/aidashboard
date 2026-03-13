@@ -3,6 +3,7 @@ import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import { LastVisitBeacon } from "@/components/dashboard/last-visit-beacon";
 import { Button } from "@/components/ui/button";
 import {
+  CategoriesSettingsSection,
   EntitiesSettingsSection,
   RulesSettingsSection,
   SourcesSettingsSection,
@@ -34,6 +35,7 @@ export default async function Home({ searchParams }: PageProps) {
             sourcesPanel={<SourcesSettingsSection snapshot={adminSnapshot} />}
             entitiesPanel={<EntitiesSettingsSection snapshot={adminSnapshot} />}
             tagsPanel={<TagsSettingsSection snapshot={adminSnapshot} />}
+            categoriesPanel={<CategoriesSettingsSection snapshot={adminSnapshot} />}
             rulesPanel={<RulesSettingsSection snapshot={adminSnapshot} />}
           />
         ) : (

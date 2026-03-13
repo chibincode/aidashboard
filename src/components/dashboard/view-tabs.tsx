@@ -1,18 +1,22 @@
 "use client";
 
-import type { DashboardView } from "@/lib/domain";
-import { dashboardViewTabs } from "@/components/dashboard/view-meta";
+import type { CategoryRecord, DashboardView } from "@/lib/domain";
+import { getDashboardViewTabs } from "@/components/dashboard/view-meta";
 import { cn } from "@/lib/utils";
 
 export function DashboardViewTabs({
   activeView,
+  categories,
   layout = "row",
   onChange,
 }: {
   activeView: DashboardView;
+  categories: CategoryRecord[];
   layout?: "row" | "sidebar";
   onChange: (view: DashboardView) => void;
 }) {
+  const tabs = getDashboardViewTabs(categories);
+
   if (layout === "sidebar") {
     return (
       <div>
@@ -20,7 +24,7 @@ export function DashboardViewTabs({
           <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500">Categories</p>
         </div>
         <div className="flex flex-col gap-1">
-          {dashboardViewTabs.map((tab) => (
+          {tabs.map((tab) => (
             <button
               key={tab.value}
               type="button"
@@ -43,7 +47,7 @@ export function DashboardViewTabs({
 
   return (
     <div className="mb-4 flex flex-wrap gap-2">
-      {dashboardViewTabs.map((tab) => (
+      {tabs.map((tab) => (
         <button
           key={tab.value}
           type="button"

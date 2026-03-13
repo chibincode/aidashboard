@@ -3,7 +3,9 @@ import { redirect } from "next/navigation";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import type {
   AdminSnapshot,
+  CategoryRecord,
   DashboardFilters,
+  EntityKind,
   SourceConfig,
   TagRuleCondition,
   UserItemStateRecord,
@@ -23,6 +25,7 @@ import { appConfig } from "@/lib/env";
 import { requireDb } from "@/lib/db";
 import {
   entities,
+  categories,
   feedItems,
   feedItemSources,
   feedItemTags,
@@ -117,6 +120,15 @@ function toSourceRecord(
   };
 }
 
+function toCategoryRecord(row: typeof categories.$inferSelect): CategoryRecord {
+  return {
+    ...row,
+    tagIds: Array.isArray(row.tagIds) ? (row.tagIds as string[]) : [],
+    entityIds: Array.isArray(row.entityIds) ? (row.entityIds as string[]) : [],
+    entityKinds: Array.isArray(row.entityKinds) ? (row.entityKinds as EntityKind[]) : [],
+  };
+}
+
 export async function getDashboardSnapshot(filters: DashboardFilters): Promise<DashboardSnapshot> {
   const viewer = await getViewerContext();
 
@@ -127,7 +139,7 @@ export async function getDashboardSnapshot(filters: DashboardFilters): Promise<D
 
   const db = requireDb();
 
-  const [workspace, sourceRows, entityRows, tagRows, itemRows, stateRows] = await Promise.all([
+  const [workspace, sourceRows, entityRows, tagRows, categoryRows, itemRows, stateRows] = await Promise.all([
     db.query.workspaces.findFirst({
       where: eq(workspaces.id, viewer.workspaceId),
     }),
@@ -142,6 +154,10 @@ export async function getDashboardSnapshot(filters: DashboardFilters): Promise<D
     db.query.tags.findMany({
       where: eq(tags.workspaceId, viewer.workspaceId),
       orderBy: [asc(tags.name)],
+    }),
+    db.query.categories.findMany({
+      where: eq(categories.workspaceId, viewer.workspaceId),
+      orderBy: [asc(categories.position), asc(categories.name)],
     }),
     db.query.feedItems.findMany({
       where: eq(feedItems.workspaceId, viewer.workspaceId),
@@ -192,6 +208,7 @@ export async function getDashboardSnapshot(filters: DashboardFilters): Promise<D
     sources: sourceRows.map((source) => toSourceRecord(source, sourceDefaultTagMap.get(source.id) ?? [])),
     entities: entityRows,
     tags: tagRows,
+    categories: categoryRows.map(toCategoryRecord),
     feedItems: itemRows.map((item) => ({
       ...item,
       sourceIds: itemSourceMap.get(item.id) ?? [item.primarySourceId],
@@ -218,15 +235,21 @@ export async function getAdminSnapshot(): Promise<AdminSnapshot> {
   const viewer = await getViewerContext();
   const db = requireDb();
 
-  const [workspace, sourceRows, entityRows, tagRows, ruleRows, itemRows, sourceTagRows] = await Promise.all([
+  const [workspace, sourceRows, entityRows, tagRows, categoryRows, ruleRows] = await Promise.all([
     db.query.workspaces.findFirst({ where: eq(workspaces.id, viewer.workspaceId) }),
     db.query.sources.findMany({ where: eq(sources.workspaceId, viewer.workspaceId), orderBy: [desc(sources.priority)] }),
     db.query.entities.findMany({ where: eq(entities.workspaceId, viewer.workspaceId), orderBy: [asc(entities.name)] }),
     db.query.tags.findMany({ where: eq(tags.workspaceId, viewer.workspaceId), orderBy: [asc(tags.name)] }),
+    db.query.categories.findMany({
+      where: eq(categories.workspaceId, viewer.workspaceId),
+      orderBy: [asc(categories.position), asc(categories.name)],
+    }),
     db.query.tagRules.findMany({ where: eq(tagRules.workspaceId, viewer.workspaceId), orderBy: [desc(tagRules.priority)] }),
-    db.query.feedItems.findMany({ where: eq(feedItems.workspaceId, viewer.workspaceId), orderBy: [desc(feedItems.publishedAt)] }),
-    db.select().from(sourceDefaultTags),
   ]);
+
+  const sourceIds = sourceRows.map((source) => source.id);
+  const sourceTagRows =
+    sourceIds.length > 0 ? await db.select().from(sourceDefaultTags).where(inArray(sourceDefaultTags.sourceId, sourceIds)) : [];
 
   const tagMap = new Map<string, string[]>();
   for (const row of sourceTagRows) {
@@ -239,15 +262,11 @@ export async function getAdminSnapshot(): Promise<AdminSnapshot> {
     sources: sourceRows.map((row) => toSourceRecord(row, tagMap.get(row.id) ?? [])),
     entities: entityRows,
     tags: tagRows,
+    categories: categoryRows.map(toCategoryRecord),
     rules: ruleRows.map((row) => ({
       ...row,
       conditions: row.conditions as TagRuleCondition,
       actions: row.actions as { tagIds: string[] },
-    })),
-    feedItems: itemRows.map((row) => ({
-      ...row,
-      sourceIds: [],
-      tagIds: [],
     })),
   };
 }
@@ -408,6 +427,85 @@ export async function deleteTagRecord(id: string) {
   const workspaceId = await assertWorkspace();
   const db = requireDb();
   await db.delete(tags).where(and(eq(tags.id, id), eq(tags.workspaceId, workspaceId)));
+}
+
+export async function createCategoryRecord(input: {
+  name: string;
+  description: string;
+  tone: CategoryRecord["tone"];
+  position: number;
+  isActive: boolean;
+  tagIds: string[];
+  entityIds: string[];
+  entityKinds: EntityKind[];
+}) {
+  const workspaceId = await assertWorkspace();
+  const db = requireDb();
+
+  await db.insert(categories).values({
+    workspaceId,
+    name: input.name,
+    slug: slugify(input.name),
+    description: input.description,
+    tone: input.tone,
+    position: input.position,
+    isActive: input.isActive,
+    tagIds: input.tagIds,
+    entityIds: input.entityIds,
+    entityKinds: input.entityKinds,
+  });
+}
+
+export async function updateCategoryRecord(input: {
+  id: string;
+  name: string;
+  description: string;
+  tone: CategoryRecord["tone"];
+  position: number;
+  isActive: boolean;
+  tagIds: string[];
+  entityIds: string[];
+  entityKinds: EntityKind[];
+}) {
+  const workspaceId = await assertWorkspace();
+  const db = requireDb();
+
+  const [updated] = await db
+    .update(categories)
+    .set({
+      name: input.name,
+      slug: slugify(input.name),
+      description: input.description,
+      tone: input.tone,
+      position: input.position,
+      isActive: input.isActive,
+      tagIds: input.tagIds,
+      entityIds: input.entityIds,
+      entityKinds: input.entityKinds,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(categories.id, input.id), eq(categories.workspaceId, workspaceId)))
+    .returning({ id: categories.id });
+
+  if (!updated) {
+    throw new Error("Category not found.");
+  }
+}
+
+export async function toggleCategoryRecord(id: string, isActive: boolean) {
+  const workspaceId = await assertWorkspace();
+  const db = requireDb();
+
+  await db
+    .update(categories)
+    .set({ isActive, updatedAt: new Date() })
+    .where(and(eq(categories.id, id), eq(categories.workspaceId, workspaceId)));
+}
+
+export async function deleteCategoryRecord(id: string) {
+  const workspaceId = await assertWorkspace();
+  const db = requireDb();
+  await db.delete(categories).where(and(eq(categories.id, id), eq(categories.workspaceId, workspaceId)));
 }
 
 export async function createSourceRecord(input: {

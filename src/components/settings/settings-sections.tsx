@@ -1,17 +1,22 @@
 import {
+  createCategoryAction,
   createEntityAction,
   createRuleAction,
   createSourceAction,
   createTagAction,
+  deleteCategoryAction,
   deleteEntityAction,
   deleteRuleAction,
   deleteSourceAction,
   deleteTagAction,
+  toggleCategoryAction,
   toggleRuleAction,
   toggleSourceAction,
   toggleTagAction,
+  updateCategoryAction,
   updateSourceAction,
 } from "@/actions/admin";
+import { CategoriesSettingsPanel } from "@/components/settings/categories-settings-panel";
 import { SourcesSettingsPanel } from "@/components/settings/sources-settings-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -246,6 +251,23 @@ export function TagsSettingsSection({ snapshot }: { snapshot: AdminSnapshot }) {
   );
 }
 
+export function CategoriesSettingsSection({ snapshot }: { snapshot: AdminSnapshot }) {
+  return (
+    <div>
+      <SettingsSectionHeader title="Categories" description="Configurable homepage groupings driven by your taxonomy." />
+      <SettingsModeNote />
+      <CategoriesSettingsPanel
+        snapshot={snapshot}
+        canManageCategories={appConfig.hasDatabase}
+        createAction={createCategoryAction}
+        updateAction={updateCategoryAction}
+        toggleAction={toggleCategoryAction}
+        deleteAction={deleteCategoryAction}
+      />
+    </div>
+  );
+}
+
 export function RulesSettingsSection({ snapshot }: { snapshot: AdminSnapshot }) {
   return (
     <div>
@@ -372,6 +394,8 @@ export function renderSettingsSection(tab: SettingsTabId, snapshot: AdminSnapsho
       return <EntitiesSettingsSection snapshot={snapshot} />;
     case "tags":
       return <TagsSettingsSection snapshot={snapshot} />;
+    case "categories":
+      return <CategoriesSettingsSection snapshot={snapshot} />;
     case "rules":
       return <RulesSettingsSection snapshot={snapshot} />;
   }

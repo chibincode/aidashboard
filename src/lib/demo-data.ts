@@ -1,8 +1,10 @@
 import type { AdminSnapshot, DashboardFilters, DashboardSnapshot, FeedItemRecord, SourceRecord, UserItemStateRecord, ViewerContext } from "@/lib/domain";
 import { buildDashboardSnapshot } from "@/lib/dashboard";
+import { fingerprintForFeedItem, normalizeFeedItemUrl } from "@/lib/feed-item-identity";
 import { ingestSource } from "@/lib/ingestion";
 import {
   defaultWorkspace,
+  seedCategories,
   seedEntities,
   seedFeedItems,
   seedRules,
@@ -48,8 +50,10 @@ async function getLiveDemoFeedItems(sources: SourceRecord[]) {
     return [];
   }
 
-  const existingUrls = new Set(seedFeedItems.map((item) => item.canonicalUrl));
+  const existingUrls = new Set(seedFeedItems.map((item) => normalizeFeedItemUrl(item.canonicalUrl)));
   const existingFingerprints = new Set(seedFeedItems.map((item) => item.fingerprint));
+  const seenLiveUrls = new Set<string>();
+  const seenLiveFingerprints = new Set<string>();
 
   const results = await Promise.all(
     liveSources.map(async (source) => {
@@ -64,27 +68,44 @@ async function getLiveDemoFeedItems(sources: SourceRecord[]) {
         );
 
         return result.items
-          .map<FeedItemRecord>((item) => ({
-            id: buildLiveDemoItemId(source.id, item.canonicalUrl, item.title),
-            workspaceId: source.workspaceId,
-            entityId: source.entityId,
-            primarySourceId: source.id,
-            sourceIds: [source.id],
-            title: item.title,
-            excerpt: item.excerpt,
-            canonicalUrl: item.canonicalUrl,
-            contentType: item.contentType,
-            publishedAt: item.publishedAt,
-            ingestedAt: new Date(),
-            fingerprint: item.fingerprint ?? `${source.id}:${item.canonicalUrl}`,
-            authorName: item.authorName ?? null,
-            authorAvatarUrl: item.authorAvatarUrl ?? null,
-            thumbnailUrl: item.thumbnailUrl ?? null,
-            mediaKind: item.mediaKind ?? null,
-            socialMetrics: item.socialMetrics,
-            tagIds: item.tagIds ?? source.defaultTagIds,
-          }))
-          .filter((item) => !existingUrls.has(item.canonicalUrl) && !existingFingerprints.has(item.fingerprint));
+          .map<FeedItemRecord>((item) => {
+            const canonicalUrl = normalizeFeedItemUrl(item.canonicalUrl);
+            const fingerprint = item.fingerprint ?? fingerprintForFeedItem({ canonicalUrl, title: item.title });
+
+            return {
+              id: buildLiveDemoItemId(source.id, canonicalUrl, item.title),
+              workspaceId: source.workspaceId,
+              entityId: source.entityId,
+              primarySourceId: source.id,
+              sourceIds: [source.id],
+              title: item.title,
+              excerpt: item.excerpt,
+              canonicalUrl,
+              contentType: item.contentType,
+              publishedAt: item.publishedAt,
+              ingestedAt: new Date(),
+              fingerprint,
+              authorName: item.authorName ?? null,
+              authorAvatarUrl: item.authorAvatarUrl ?? null,
+              thumbnailUrl: item.thumbnailUrl ?? null,
+              mediaKind: item.mediaKind ?? null,
+              socialMetrics: item.socialMetrics,
+              tagIds: item.tagIds ?? source.defaultTagIds,
+            };
+          })
+          .filter((item) => {
+            if (existingUrls.has(item.canonicalUrl) || existingFingerprints.has(item.fingerprint)) {
+              return false;
+            }
+
+            if (seenLiveUrls.has(item.canonicalUrl) || seenLiveFingerprints.has(item.fingerprint)) {
+              return false;
+            }
+
+            seenLiveUrls.add(item.canonicalUrl);
+            seenLiveFingerprints.add(item.fingerprint);
+            return true;
+          });
       } catch {
         return [];
       }
@@ -107,6 +128,7 @@ export async function buildDemoDashboard(
     sources,
     entities: seedEntities,
     tags: seedTags,
+    categories: seedCategories,
     feedItems: [...liveFeedItems, ...seedFeedItems],
     userStates,
     viewer,
@@ -120,8 +142,8 @@ export function buildDemoAdminSnapshot(sources: SourceRecord[] = seedSources): A
     sources,
     entities: seedEntities,
     tags: seedTags,
+    categories: seedCategories,
     rules: seedRules,
-    feedItems: seedFeedItems,
   };
 }
 

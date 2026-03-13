@@ -1,18 +1,16 @@
-import type { DashboardView } from "@/lib/domain";
+import type { CategoryRecord, DashboardView } from "@/lib/domain";
 
-export const dashboardViewTabs: ReadonlyArray<{ value: DashboardView; label: string }> = [
-  { value: "all", label: "All" },
-  { value: "ai-ux-ui", label: "AI UX/UI" },
-  { value: "website-inspiration", label: "Website Inspiration" },
-  { value: "competitor-watch", label: "Competitor Watch" },
-  { value: "industry-signals", label: "Industry Signals" },
-  { value: "saved", label: "Saved" },
-] as const;
+export function getDashboardViewTabs(categories: CategoryRecord[]) {
+  return [
+    { value: "all", label: "All" },
+    ...categories.map((category) => ({
+      value: category.id,
+      label: category.name,
+    })),
+    { value: "saved", label: "Saved" },
+  ] satisfies ReadonlyArray<{ value: DashboardView; label: string }>;
+}
 
-const dashboardViewLabelMap = Object.fromEntries(
-  dashboardViewTabs.map((tab) => [tab.value, tab.label]),
-) as Record<DashboardView, string>;
-
-export function getDashboardViewLabel(view: DashboardView) {
-  return dashboardViewLabelMap[view];
+export function getDashboardViewLabel(view: DashboardView, categories: CategoryRecord[]) {
+  return getDashboardViewTabs(categories).find((tab) => tab.value === view)?.label ?? "All";
 }

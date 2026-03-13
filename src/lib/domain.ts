@@ -13,27 +13,12 @@ export type FeedItemType = (typeof feedItemTypes)[number];
 export const membershipRoles = ["owner", "editor", "viewer"] as const;
 export type MembershipRole = (typeof membershipRoles)[number];
 
-export const sectionKeys = [
-  "new-since-last-visit",
-  "ai-ux-ui",
-  "website-inspiration",
-  "competitor-watch",
-  "industry-signals",
-  "saved",
-] as const;
-export type SectionKey = (typeof sectionKeys)[number];
+export const systemDashboardViews = ["all", "saved"] as const;
+export type SystemDashboardView = (typeof systemDashboardViews)[number];
+export type DashboardView = string;
+export type SectionKey = string;
 
-export const dashboardViews = [
-  "all",
-  "ai-ux-ui",
-  "website-inspiration",
-  "competitor-watch",
-  "industry-signals",
-  "saved",
-] as const;
-export type DashboardView = (typeof dashboardViews)[number];
-
-export const settingsTabIds = ["sources", "entities", "tags", "rules"] as const;
+export const settingsTabIds = ["sources", "entities", "tags", "categories", "rules"] as const;
 export type SettingsTabId = (typeof settingsTabIds)[number];
 
 export const settingsTabs: ReadonlyArray<{
@@ -44,6 +29,7 @@ export const settingsTabs: ReadonlyArray<{
   { id: "sources", label: "Sources", href: "/admin/sources" },
   { id: "entities", label: "Entities", href: "/admin/entities" },
   { id: "tags", label: "Tags", href: "/admin/tags" },
+  { id: "categories", label: "Categories", href: "/admin/categories" },
   { id: "rules", label: "Rules", href: "/admin/rules" },
 ] as const;
 
@@ -74,6 +60,20 @@ export interface TagRecord {
   color: string;
   parentId: string | null;
   isActive: boolean;
+}
+
+export interface CategoryRecord {
+  id: string;
+  workspaceId: string;
+  name: string;
+  slug: string;
+  description: string;
+  tone: ThemeTone;
+  position: number;
+  isActive: boolean;
+  tagIds: string[];
+  entityIds: string[];
+  entityKinds: EntityKind[];
 }
 
 export const sourceExtractorProfiles = [
@@ -222,7 +222,9 @@ export interface DashboardItem {
   sourceHandle: string | null;
   sourceType: SourceType;
   socialMetrics?: SocialMetrics | null;
+  entityId: string | null;
   entityName: string | null;
+  entityKind: EntityKind | null;
   tags: TagRecord[];
 }
 
@@ -247,8 +249,8 @@ export interface AdminSnapshot {
   sources: SourceRecord[];
   entities: EntityRecord[];
   tags: TagRecord[];
+  categories: CategoryRecord[];
   rules: TagRuleRecord[];
-  feedItems: FeedItemRecord[];
 }
 
 export interface DashboardSnapshot {
@@ -257,6 +259,7 @@ export interface DashboardSnapshot {
   activeView: DashboardView;
   feedItems: DashboardItem[];
   sections: DashboardSection[];
+  categories: CategoryRecord[];
   tags: TagRecord[];
   entities: EntityRecord[];
   sources: SourceRecord[];

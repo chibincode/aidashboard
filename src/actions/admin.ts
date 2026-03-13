@@ -2,31 +2,42 @@
 
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
+import { inngest } from "@/inngest/client";
 import {
+  createCategoryRecord,
   createEntityRecord,
   createRuleRecord,
   createSourceRecord,
   createTagRecord,
+  deleteCategoryRecord,
   deleteEntityRecord,
   deleteRuleRecord,
   deleteSourceRecord,
   deleteTagRecord,
   getSourceRecordById,
+  toggleCategoryRecord,
   toggleRuleRecord,
   toggleSourceRecord,
   toggleTagRecord,
+  updateCategoryRecord,
   updateSourceRecord,
 } from "@/lib/repositories/app-repository";
-import { syncSourceById } from "@/lib/ingestion/sync";
 import { appConfig } from "@/lib/env";
 import { requireOwnerActionSession } from "@/lib/auth-guards";
 import { normalizeSourceInput, SourceValidationError } from "@/lib/source-normalization";
+import {
+  createCategoryMutationState,
+  createEmptyCategoryFormValues,
+  type CategoryFormValues,
+  type CategoryMutationState,
+} from "@/lib/category-forms";
 import {
   createEmptySourceFormValues,
   createSourceMutationState,
   type SourceFormValues,
   type SourceMutationState,
 } from "@/lib/source-forms";
+import { entityKinds, type EntityKind, type ThemeTone } from "@/lib/domain";
 import { createSettingsToast, serializeSettingsToast, SETTINGS_TOAST_COOKIE } from "@/lib/settings-toast";
 import { splitCommaList } from "@/lib/utils";
 
@@ -56,21 +67,60 @@ function withSourceState(
   });
 }
 
-async function persistAndValidateSource(
+function readCategoryMutationValues(formData: FormData): CategoryFormValues {
+  return {
+    id: String(formData.get("id") ?? ""),
+    name: String(formData.get("name") ?? "").trim(),
+    description: String(formData.get("description") ?? "").trim(),
+    tone: String(formData.get("tone") ?? "sand") as ThemeTone,
+    position: String(formData.get("position") ?? "10"),
+    isActive: formData.get("isActive") === "on",
+    tagIds: formData.getAll("tagIds").map(String),
+    entityIds: formData.getAll("entityIds").map(String),
+    entityKinds: formData.getAll("entityKinds").map(String).filter((kind): kind is EntityKind => entityKinds.includes(kind as EntityKind)),
+  };
+}
+
+function withCategoryState(
+  previousState: CategoryMutationState,
+  values: CategoryFormValues,
+  overrides?: Partial<Omit<CategoryMutationState, "values">>,
+) {
+  return createCategoryMutationState(values, {
+    nonce: previousState.nonce + 1,
+    ...overrides,
+  });
+}
+
+async function setSettingsToastMessage(message: string) {
+  const cookieStore = await cookies();
+  cookieStore.set(SETTINGS_TOAST_COOKIE, serializeSettingsToast(createSettingsToast(message)), {
+    path: "/",
+    maxAge: 60,
+    sameSite: "lax",
+  });
+}
+
+async function persistAndScheduleSourceValidation(
   sourceId: string,
   actionLabel: "created" | "updated",
 ) {
+  const successMessage = `Source ${actionLabel}. Background validation started.`;
+
   try {
-    await syncSourceById(sourceId);
+    await inngest.send({
+      name: "signal/source.sync",
+      data: { sourceId },
+    });
+
     return {
       status: "success" as const,
-      message: `Source ${actionLabel} and validated.`,
+      message: successMessage,
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Validation failed.";
     return {
-      status: "error" as const,
-      message: `Source ${actionLabel}, but validation failed: ${message}`,
+      status: "success" as const,
+      message: "Source saved, but background validation could not be scheduled.",
     };
   }
 }
@@ -117,12 +167,9 @@ export async function createSourceAction(
       defaultTagIds: values.defaultTagIds,
     });
 
-    revalidatePath("/admin/sources");
-    revalidatePath("/");
-
     const validation = sourceId
       ? appConfig.hasDatabase
-        ? await persistAndValidateSource(sourceId, "created")
+        ? await persistAndScheduleSourceValidation(sourceId, "created")
         : {
             status: "success" as const,
             message: "Source created. Demo-mode changes are stored in this browser.",
@@ -132,8 +179,9 @@ export async function createSourceAction(
           message: "Source was not created.",
         };
 
-    revalidatePath("/admin/sources");
-    revalidatePath("/");
+    if (validation.status === "success") {
+      await setSettingsToastMessage(validation.message);
+    }
 
     return createSourceMutationState(createEmptySourceFormValues(), {
       status: validation.status,
@@ -215,18 +263,16 @@ export async function updateSourceAction(
       defaultTagIds: values.defaultTagIds,
     });
 
-    revalidatePath("/admin/sources");
-    revalidatePath("/");
-
     const validation = appConfig.hasDatabase
-      ? await persistAndValidateSource(sourceId, "updated")
+      ? await persistAndScheduleSourceValidation(sourceId, "updated")
       : {
           status: "success" as const,
           message: "Source updated. Demo-mode changes are stored in this browser.",
         };
 
-    revalidatePath("/admin/sources");
-    revalidatePath("/");
+    if (validation.status === "success") {
+      await setSettingsToastMessage(validation.message);
+    }
 
     return withSourceState(previousState, values, {
       status: validation.status,
@@ -258,14 +304,7 @@ export async function toggleSourceAction(formData: FormData) {
 export async function deleteSourceAction(formData: FormData) {
   await requireOwnerActionSession();
   await deleteSourceRecord(String(formData.get("id")));
-  const cookieStore = await cookies();
-  cookieStore.set(SETTINGS_TOAST_COOKIE, serializeSettingsToast(createSettingsToast("Source deleted.")), {
-    path: "/",
-    maxAge: 60,
-    sameSite: "lax",
-  });
-  revalidatePath("/admin/sources");
-  revalidatePath("/");
+  await setSettingsToastMessage("Source deleted.");
 }
 
 export async function createEntityAction(formData: FormData) {
@@ -284,13 +323,136 @@ export async function createEntityAction(formData: FormData) {
 export async function deleteEntityAction(formData: FormData) {
   await requireOwnerActionSession();
   await deleteEntityRecord(String(formData.get("id")));
-  const cookieStore = await cookies();
-  cookieStore.set(SETTINGS_TOAST_COOKIE, serializeSettingsToast(createSettingsToast("Entity deleted.")), {
-    path: "/",
-    maxAge: 60,
-    sameSite: "lax",
-  });
+  await setSettingsToastMessage("Entity deleted.");
   revalidatePath("/admin/entities");
+  revalidatePath("/");
+}
+
+export async function createCategoryAction(
+  previousState: CategoryMutationState,
+  formData: FormData,
+): Promise<CategoryMutationState> {
+  await requireOwnerActionSession();
+  const values = readCategoryMutationValues(formData);
+
+  if (!values.name) {
+    return withCategoryState(previousState, values, {
+      status: "error",
+      message: "Category name is required.",
+      fieldErrors: { name: "Category name is required." },
+    });
+  }
+
+  if (values.tagIds.length + values.entityIds.length + values.entityKinds.length === 0) {
+    return withCategoryState(previousState, values, {
+      status: "error",
+      message: "Choose at least one tag, entity, or entity kind.",
+      fieldErrors: { conditions: "Choose at least one tag, entity, or entity kind." },
+    });
+  }
+
+  const position = Number(values.position);
+  if (!Number.isFinite(position)) {
+    return withCategoryState(previousState, values, {
+      status: "error",
+      message: "Order must be a number.",
+      fieldErrors: { position: "Order must be a number." },
+    });
+  }
+
+  await createCategoryRecord({
+    name: values.name,
+    description: values.description,
+    tone: values.tone,
+    position,
+    isActive: values.isActive,
+    tagIds: values.tagIds,
+    entityIds: values.entityIds,
+    entityKinds: values.entityKinds,
+  });
+
+  revalidatePath("/admin/categories");
+  revalidatePath("/");
+
+  return createCategoryMutationState(createEmptyCategoryFormValues({ position: values.position }), {
+    status: "success",
+    message: "Category created.",
+    nonce: previousState.nonce + 1,
+  });
+}
+
+export async function updateCategoryAction(
+  previousState: CategoryMutationState,
+  formData: FormData,
+): Promise<CategoryMutationState> {
+  await requireOwnerActionSession();
+  const values = readCategoryMutationValues(formData);
+
+  if (!values.id) {
+    return withCategoryState(previousState, values, {
+      status: "error",
+      message: "Missing category id.",
+    });
+  }
+
+  if (!values.name) {
+    return withCategoryState(previousState, values, {
+      status: "error",
+      message: "Category name is required.",
+      fieldErrors: { name: "Category name is required." },
+    });
+  }
+
+  if (values.tagIds.length + values.entityIds.length + values.entityKinds.length === 0) {
+    return withCategoryState(previousState, values, {
+      status: "error",
+      message: "Choose at least one tag, entity, or entity kind.",
+      fieldErrors: { conditions: "Choose at least one tag, entity, or entity kind." },
+    });
+  }
+
+  const position = Number(values.position);
+  if (!Number.isFinite(position)) {
+    return withCategoryState(previousState, values, {
+      status: "error",
+      message: "Order must be a number.",
+      fieldErrors: { position: "Order must be a number." },
+    });
+  }
+
+  await updateCategoryRecord({
+    id: values.id,
+    name: values.name,
+    description: values.description,
+    tone: values.tone,
+    position,
+    isActive: values.isActive,
+    tagIds: values.tagIds,
+    entityIds: values.entityIds,
+    entityKinds: values.entityKinds,
+  });
+
+  revalidatePath("/admin/categories");
+  revalidatePath("/");
+
+  return withCategoryState(previousState, values, {
+    status: "success",
+    message: "Category updated.",
+  });
+}
+
+export async function toggleCategoryAction(formData: FormData) {
+  await requireOwnerActionSession();
+  await toggleCategoryRecord(String(formData.get("id")), formData.get("isActive") === "true");
+  revalidatePath("/admin/categories");
+  revalidatePath("/");
+}
+
+export async function deleteCategoryAction(formData: FormData) {
+  await requireOwnerActionSession();
+  await deleteCategoryRecord(String(formData.get("id")));
+  await setSettingsToastMessage("Category deleted.");
+  revalidatePath("/admin/categories");
   revalidatePath("/");
 }
 
@@ -317,12 +479,7 @@ export async function toggleTagAction(formData: FormData) {
 export async function deleteTagAction(formData: FormData) {
   await requireOwnerActionSession();
   await deleteTagRecord(String(formData.get("id")));
-  const cookieStore = await cookies();
-  cookieStore.set(SETTINGS_TOAST_COOKIE, serializeSettingsToast(createSettingsToast("Tag deleted.")), {
-    path: "/",
-    maxAge: 60,
-    sameSite: "lax",
-  });
+  await setSettingsToastMessage("Tag deleted.");
   revalidatePath("/admin/tags");
   revalidatePath("/");
 }
@@ -353,12 +510,7 @@ export async function toggleRuleAction(formData: FormData) {
 export async function deleteRuleAction(formData: FormData) {
   await requireOwnerActionSession();
   await deleteRuleRecord(String(formData.get("id")));
-  const cookieStore = await cookies();
-  cookieStore.set(SETTINGS_TOAST_COOKIE, serializeSettingsToast(createSettingsToast("Rule deleted.")), {
-    path: "/",
-    maxAge: 60,
-    sameSite: "lax",
-  });
+  await setSettingsToastMessage("Rule deleted.");
   revalidatePath("/admin/rules");
   revalidatePath("/");
 }

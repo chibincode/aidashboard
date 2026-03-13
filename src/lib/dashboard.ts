@@ -1,4 +1,5 @@
 import type {
+  CategoryRecord,
   DashboardFilters,
   DashboardItem,
   DashboardSection,
@@ -12,6 +13,73 @@ import type {
   ViewerContext,
   WorkspaceRecord,
 } from "@/lib/domain";
+import { normalizeFeedItemUrl } from "@/lib/feed-item-identity";
+
+const NEW_SINCE_LAST_VISIT_SECTION: DashboardSection = {
+  id: "new-since-last-visit",
+  title: "New Since Last Visit",
+  description: "Everything that landed after your previous check-in.",
+  tone: "mint",
+  items: [],
+};
+
+const SAVED_SECTION: DashboardSection = {
+  id: "saved",
+  title: "Saved",
+  description: "Your pinned items for later review and cross-team synthesis.",
+  tone: "mint",
+  items: [],
+};
+
+function mergeDashboardItems(existing: DashboardItem, incoming: DashboardItem): DashboardItem {
+  const tagMap = new Map(existing.tags.map((tag) => [tag.id, tag]));
+  for (const tag of incoming.tags) {
+    tagMap.set(tag.id, tag);
+  }
+
+  const existingMetricCount = Object.values(existing.socialMetrics ?? {}).filter((value) => value !== undefined).length;
+  const incomingMetricCount = Object.values(incoming.socialMetrics ?? {}).filter((value) => value !== undefined).length;
+
+  return {
+    ...existing,
+    title: existing.title.length >= incoming.title.length ? existing.title : incoming.title,
+    excerpt: existing.excerpt.length >= incoming.excerpt.length ? existing.excerpt : incoming.excerpt,
+    publishedAt: existing.publishedAt > incoming.publishedAt ? existing.publishedAt : incoming.publishedAt,
+    authorName: existing.authorName ?? incoming.authorName,
+    authorAvatarUrl: existing.authorAvatarUrl ?? incoming.authorAvatarUrl ?? null,
+    thumbnailUrl: existing.thumbnailUrl ?? incoming.thumbnailUrl,
+    mediaKind: existing.mediaKind ?? incoming.mediaKind ?? null,
+    mediaLabel: existing.mediaLabel ?? incoming.mediaLabel ?? null,
+    isNew: existing.isNew || incoming.isNew,
+    isRead: existing.isRead || incoming.isRead,
+    isSaved: existing.isSaved || incoming.isSaved,
+    sourceName: existing.sourceName !== "Unknown source" ? existing.sourceName : incoming.sourceName,
+    sourceHandle: existing.sourceHandle ?? incoming.sourceHandle,
+    socialMetrics: existingMetricCount >= incomingMetricCount ? existing.socialMetrics : incoming.socialMetrics,
+    entityId: existing.entityId ?? incoming.entityId,
+    entityName: existing.entityName ?? incoming.entityName,
+    entityKind: existing.entityKind ?? incoming.entityKind,
+    tags: [...tagMap.values()],
+  };
+}
+
+function dedupeDashboardItems(items: DashboardItem[]) {
+  const deduped = new Map<string, DashboardItem>();
+
+  for (const item of items) {
+    const key = normalizeFeedItemUrl(item.canonicalUrl);
+    const existing = deduped.get(key);
+
+    if (!existing) {
+      deduped.set(key, item);
+      continue;
+    }
+
+    deduped.set(key, mergeDashboardItems(existing, item));
+  }
+
+  return [...deduped.values()].sort((left, right) => right.publishedAt.getTime() - left.publishedAt.getTime());
+}
 
 function toDashboardItem(args: {
   item: FeedItemRecord;
@@ -46,16 +114,16 @@ function toDashboardItem(args: {
     sourceHandle: typeof source?.config.handle === "string" ? source.config.handle : null,
     sourceType: source?.type ?? "website",
     socialMetrics: item.socialMetrics ?? null,
+    entityId: entity?.id ?? null,
     entityName: entity?.name ?? null,
+    entityKind: entity?.kind ?? null,
     tags: item.tagIds.map((tagId) => tagMap.get(tagId)).filter(Boolean) as TagRecord[],
   };
 }
 
-function filterDashboardItems(items: DashboardItem[], entities: EntityRecord[], filters: DashboardFilters) {
-  const entity = filters.entity ? entities.find((entry) => entry.id === filters.entity) : undefined;
-
+function filterDashboardItems(items: DashboardItem[], filters: DashboardFilters) {
   return items.filter((item) => {
-    if (entity && item.entityName !== entity.name) {
+    if (filters.entity && item.entityId !== filters.entity) {
       return false;
     }
 
@@ -79,57 +147,52 @@ function filterDashboardItems(items: DashboardItem[], entities: EntityRecord[], 
   });
 }
 
-function buildSections(items: DashboardItem[]): DashboardSection[] {
+function sortCategories(categories: CategoryRecord[]) {
+  return [...categories].sort((left, right) => {
+    if (left.position !== right.position) {
+      return left.position - right.position;
+    }
+
+    return left.name.localeCompare(right.name);
+  });
+}
+
+function itemMatchesCategory(item: DashboardItem, category: CategoryRecord) {
+  const hasTagMatch = category.tagIds.some((tagId) => item.tags.some((tag) => tag.id === tagId));
+  const hasEntityMatch = item.entityId ? category.entityIds.includes(item.entityId) : false;
+  const hasEntityKindMatch = item.entityKind ? category.entityKinds.includes(item.entityKind) : false;
+
+  return hasTagMatch || hasEntityMatch || hasEntityKindMatch;
+}
+
+function buildSections(items: DashboardItem[], categories: CategoryRecord[]): DashboardSection[] {
+  const dynamicSections = categories.map<DashboardSection>((category) => ({
+    id: category.id,
+    title: category.name,
+    description: category.description,
+    tone: category.tone,
+    items: items.filter((item) => itemMatchesCategory(item, category)),
+  }));
+
   return [
     {
-      id: "new-since-last-visit",
-      title: "New Since Last Visit",
-      description: "Everything that landed after your previous check-in.",
-      tone: "mint",
+      ...NEW_SINCE_LAST_VISIT_SECTION,
       items: items.filter((item) => item.isNew),
     },
+    ...dynamicSections,
     {
-      id: "ai-ux-ui",
-      title: "AI UX/UI",
-      description: "Interaction patterns, onboarding models, trust cues and AI-native workflows.",
-      tone: "sand",
-      items: items.filter((item) => item.tags.some((tag) => tag.slug === "ai-ux-ui")),
-    },
-    {
-      id: "website-inspiration",
-      title: "Website Inspiration",
-      description: "Fresh gallery drops, standout landing pages and review-worthy inspiration.",
-      tone: "sand",
-      items: items.filter((item) => item.tags.some((tag) => tag.slug === "website-inspiration")),
-    },
-    {
-      id: "competitor-watch",
-      title: "Competitor Watch",
-      description: "Signals across Trucker Path, AI Loadboard, NavPro and adjacent movers.",
-      tone: "amber",
-      items: items.filter(
-        (item) =>
-          item.tags.some((tag) => tag.slug === "competitor") ||
-          ["Trucker Path", "AI Loadboard", "NavPro Web"].includes(item.entityName ?? ""),
-      ),
-    },
-    {
-      id: "industry-signals",
-      title: "Industry Signals",
-      description: "Navigation, pricing, routing and loadboard signals across the category.",
-      tone: "ink",
-      items: items.filter((item) =>
-        item.tags.some((tag) => ["navigation", "loadboard", "pricing"].includes(tag.slug)),
-      ),
-    },
-    {
-      id: "saved",
-      title: "Saved",
-      description: "Your pinned items for later review and cross-team synthesis.",
-      tone: "mint",
+      ...SAVED_SECTION,
       items: items.filter((item) => item.isSaved),
     },
   ];
+}
+
+function resolveActiveView(view: DashboardView | undefined, categories: CategoryRecord[]) {
+  if (!view || view === "all" || view === "saved") {
+    return view ?? "all";
+  }
+
+  return categories.some((category) => category.id === view) ? view : "all";
 }
 
 function getFeedItemsForView(view: DashboardView, sections: DashboardSection[], items: DashboardItem[]) {
@@ -145,6 +208,7 @@ export function buildDashboardSnapshot(args: {
   sources: SourceRecord[];
   entities: EntityRecord[];
   tags: TagRecord[];
+  categories: CategoryRecord[];
   feedItems: FeedItemRecord[];
   userStates: UserItemStateRecord[];
   viewer: ViewerContext;
@@ -164,10 +228,12 @@ export function buildDashboardSnapshot(args: {
       tagMap,
     }),
   );
+  const uniqueItems = dedupeDashboardItems(dashboardItems);
 
-  const filtered = filterDashboardItems(dashboardItems, args.entities, args.filters);
-  const sections = buildSections(filtered);
-  const activeView = args.filters.view ?? "all";
+  const filtered = filterDashboardItems(uniqueItems, args.filters);
+  const activeCategories = sortCategories(args.categories.filter((category) => category.isActive));
+  const sections = buildSections(filtered, activeCategories);
+  const activeView = resolveActiveView(args.filters.view, activeCategories);
 
   return {
     workspace: args.workspace,
@@ -175,13 +241,14 @@ export function buildDashboardSnapshot(args: {
     activeView,
     feedItems: getFeedItemsForView(activeView, sections, filtered),
     sections,
+    categories: activeCategories,
     tags: args.tags,
     entities: args.entities,
     sources: args.sources,
     counts: {
-      newItems: dashboardItems.filter((item) => item.isNew).length,
-      unreadItems: dashboardItems.filter((item) => !item.isRead).length,
-      savedItems: dashboardItems.filter((item) => item.isSaved).length,
+      newItems: uniqueItems.filter((item) => item.isNew).length,
+      unreadItems: uniqueItems.filter((item) => !item.isRead).length,
+      savedItems: uniqueItems.filter((item) => item.isSaved).length,
       healthySources: args.sources.filter((source) => source.healthStatus === "healthy").length,
     },
   };

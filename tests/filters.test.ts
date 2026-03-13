@@ -12,7 +12,7 @@ describe("filter parsing", () => {
     });
 
     expect(filters).toEqual({
-      view: "all",
+      view: undefined,
       entity: "entity_navpro",
       tag: "tag_navigation",
       sourceType: "youtube",
@@ -27,7 +27,7 @@ describe("filter parsing", () => {
   });
 
   it("accepts the website inspiration dashboard view", () => {
-    const filters = parseDashboardFilters({ view: "website-inspiration" });
-    expect(filters.view).toBe("website-inspiration");
+    const filters = parseDashboardFilters({ view: "category_website_inspiration" });
+    expect(filters.view).toBe("category_website_inspiration");
   });
 });

@@ -1,17 +1,26 @@
 "use client";
 
-import { X } from "lucide-react";
-import { useActionState, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useActionState, useEffect, useRef, useState, useTransition } from "react";
 import { useFormStatus } from "react-dom";
-import { createPortal } from "react-dom";
 import { sourceTypes, type AdminSnapshot, type SourceRecord, type SourceType } from "@/lib/domain";
 import type { SourceMutationState } from "@/lib/source-forms";
 import { createEmptySourceFormValues, createSourceMutationState, type SourceFormValues } from "@/lib/source-forms";
+import {
+  detectSourceTypeFromUrl,
+  getDefaultExtractorProfileForType,
+  getPriorityLabel,
+  priorityLevelToValue,
+  priorityValueToLevel,
+  recommendSourceNameFromUrl,
+  type SourcePriorityLevel,
+} from "@/lib/source-form-ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { SettingsModalShell } from "@/components/settings/settings-modal-shell";
 import {
   getSourceExtractorProfile,
   isGalleryExtractorProfile,
@@ -155,6 +164,69 @@ function SourceSubmitButton({
   );
 }
 
+function DeleteSourceButtons({ disabled, onCancel, pending }: { disabled?: boolean; onCancel: () => void; pending: boolean }) {
+  return (
+    <>
+      <Button type="button" variant="ghost" onClick={onCancel} disabled={pending}>
+        Cancel
+      </Button>
+      <Button type="submit" variant="danger" disabled={pending || disabled}>
+        {pending ? "Deleting..." : "Delete source"}
+      </Button>
+    </>
+  );
+}
+
+function DeleteSourceForm({
+  sourceId,
+  canManageSources,
+  deleteAction,
+  sourceName,
+  onClose,
+  onSuccess,
+}: {
+  sourceId: string;
+  canManageSources: boolean;
+  deleteAction: (formData: FormData) => Promise<void>;
+  sourceName: string;
+  onClose: () => void;
+  onSuccess: (sourceId: string, sourceName: string) => void;
+}) {
+  const [isPending, startTransition] = useTransition();
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  return (
+    <div className="grid gap-4">
+      {errorMessage ? (
+        <div className="rounded-2xl border border-[#fecaca] bg-[#fff1f2] px-4 py-3 text-sm text-[#991b1b]">{errorMessage}</div>
+      ) : null}
+
+      <form
+        action={deleteAction}
+        onSubmit={(event) => {
+          event.preventDefault();
+          setErrorMessage(null);
+
+          const formData = new FormData(event.currentTarget);
+
+          startTransition(async () => {
+            try {
+              await deleteAction(formData);
+              onSuccess(sourceId, sourceName);
+            } catch (error) {
+              setErrorMessage(error instanceof Error ? error.message : "Could not delete source.");
+            }
+          });
+        }}
+        className="flex flex-wrap justify-end gap-2"
+      >
+        <input type="hidden" name="id" value={sourceId} />
+        <DeleteSourceButtons disabled={!canManageSources} onCancel={onClose} pending={isPending} />
+      </form>
+    </div>
+  );
+}
+
 function getFormValuesFromSource(source: SourceRecord): SourceFormValues {
   return {
     id: source.id,
@@ -170,81 +242,6 @@ function getFormValuesFromSource(source: SourceRecord): SourceFormValues {
   };
 }
 
-function ModalShell({
-  open,
-  title,
-  description,
-  onClose,
-  children,
-  widthClassName = "md:max-w-[720px]",
-}: {
-  open: boolean;
-  title: string;
-  description: string;
-  onClose: () => void;
-  children: React.ReactNode;
-  widthClassName?: string;
-}) {
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-
-    const previousOverflow = document.body.style.overflow;
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key !== "Escape") {
-        return;
-      }
-
-      event.preventDefault();
-      event.stopPropagation();
-      event.stopImmediatePropagation?.();
-      onClose();
-    }
-
-    document.body.style.overflow = "hidden";
-    window.addEventListener("keydown", handleKeyDown, true);
-
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", handleKeyDown, true);
-    };
-  }, [onClose, open]);
-
-  if (!open || typeof document === "undefined") {
-    return null;
-  }
-
-  return createPortal(
-    <div className="fixed inset-0 z-[70] overflow-y-auto" aria-hidden={!open}>
-      <div className="fixed inset-0 bg-[rgba(15,23,42,0.2)] backdrop-blur-sm" onClick={onClose} />
-
-      <div className="relative flex min-h-full w-full items-end justify-center p-0 md:items-start md:p-8">
-        <section
-          role="dialog"
-          aria-modal="true"
-          aria-label={title}
-          className={`flex w-full flex-col overflow-hidden rounded-t-[30px] bg-[#f8f9fb] shadow-[0_36px_90px_-48px_rgba(15,23,42,0.55)] md:my-8 md:max-h-[calc(100vh-64px)] md:rounded-[30px] md:border md:border-black/8 ${widthClassName}`}
-          onClick={(event) => event.stopPropagation()}
-        >
-          <div className="flex items-start justify-between gap-4 border-b border-black/6 px-5 py-4">
-            <div>
-              <h3 className="text-lg font-semibold tracking-tight text-slate-950">{title}</h3>
-              <p className="mt-1 text-sm text-slate-500">{description}</p>
-            </div>
-            <Button type="button" variant="ghost" size="sm" aria-label={`Close ${title}`} onClick={onClose}>
-              <X className="size-4" />
-            </Button>
-          </div>
-          <div className="overflow-y-auto p-5">{children}</div>
-        </section>
-      </div>
-    </div>,
-    document.body,
-  );
-}
-
 function SourceModal({
   mode,
   source,
@@ -253,6 +250,7 @@ function SourceModal({
   createAction,
   updateAction,
   onClose,
+  onSuccess,
 }: {
   mode: "create" | "edit" | null;
   source: SourceRecord | null;
@@ -261,6 +259,7 @@ function SourceModal({
   createAction: SourceAction;
   updateAction: SourceAction;
   onClose: () => void;
+  onSuccess: (message: string) => void;
 }) {
   if (!mode) {
     return null;
@@ -274,13 +273,13 @@ function SourceModal({
   }
 
   return (
-    <ModalShell
+    <SettingsModalShell
       open
       title={isEditMode ? "Edit source" : "Add source"}
       description={
         isEditMode
-          ? "Update the source details, validation rules, and refresh cadence."
-          : "Create a new source and validate it immediately."
+          ? "Update the source details, validation rules, and refresh cadence. Background validation starts after save."
+          : "Create a new source. Background validation starts after save."
       }
       onClose={onClose}
     >
@@ -294,9 +293,9 @@ function SourceModal({
         pendingLabel={isEditMode ? "Saving changes..." : "Adding source..."}
         submitVariant={isEditMode ? "secondary" : "primary"}
         onCancel={onClose}
-        onSuccess={onClose}
+        onSuccess={onSuccess}
       />
-    </ModalShell>
+    </SettingsModalShell>
   );
 }
 
@@ -305,14 +304,16 @@ function DeleteSourceModal({
   canManageSources,
   deleteAction,
   onClose,
+  onSuccess,
 }: {
   source: SourceRecord | null;
   canManageSources: boolean;
   deleteAction: (formData: FormData) => Promise<void>;
   onClose: () => void;
+  onSuccess: (sourceId: string, sourceName: string) => void;
 }) {
   return (
-    <ModalShell
+    <SettingsModalShell
       open={Boolean(source)}
       title="Delete source"
       description="This removes the source permanently and stops all future sync attempts."
@@ -333,18 +334,17 @@ function DeleteSourceModal({
             <p className="mt-1 break-all text-sm text-slate-500">{source.url}</p>
           </div>
 
-          <form action={deleteAction} onSubmit={onClose} className="flex flex-wrap justify-end gap-2">
-            <input type="hidden" name="id" value={source.id} />
-            <Button type="button" variant="ghost" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button type="submit" variant="danger" disabled={!canManageSources}>
-              Delete source
-            </Button>
-          </form>
+          <DeleteSourceForm
+            sourceId={source.id}
+            canManageSources={canManageSources}
+            deleteAction={deleteAction}
+            sourceName={source.name}
+            onClose={onClose}
+            onSuccess={onSuccess}
+          />
         </div>
       ) : null}
-    </ModalShell>
+    </SettingsModalShell>
   );
 }
 
@@ -367,20 +367,65 @@ function SourceEditorForm({
   pendingLabel: string;
   submitVariant?: "primary" | "secondary";
   onCancel?: () => void;
-  onSuccess?: () => void;
+  onSuccess?: (message: string) => void;
 }) {
   const [state, formAction] = useActionState(action, createSourceMutationState(initialValues));
   const resolvedValues = state.status === "error" ? state.values : initialValues;
+  const [urlValue, setUrlValue] = useState(resolvedValues.url);
+  const [nameValue, setNameValue] = useState(resolvedValues.name);
   const [selectedType, setSelectedType] = useState<SourceFormValues["type"]>(resolvedValues.type);
   const [selectedExtractorProfile, setSelectedExtractorProfile] = useState<SourceFormValues["extractorProfile"]>(
-    resolvedValues.extractorProfile,
+    resolvedValues.type === "rss"
+      ? (resolvedValues.extractorProfile || getDefaultExtractorProfileForType("rss"))
+      : resolvedValues.extractorProfile,
   );
+  const [priorityLevel, setPriorityLevel] = useState<SourcePriorityLevel>(priorityValueToLevel(resolvedValues.priority));
+  const lastSuggestedNameRef = useRef(initialValues.id ? "" : recommendSourceNameFromUrl(resolvedValues.url));
+  const detectedType = detectSourceTypeFromUrl(urlValue);
+  const isTypeLocked = detectedType === "x" || detectedType === "youtube";
 
   useEffect(() => {
-    if (state.status === "success") {
-      onSuccess?.();
+    if (state.status === "success" && state.message) {
+      onSuccess?.(state.message);
     }
-  }, [onSuccess, state.status]);
+  }, [onSuccess, state.message, state.status]);
+
+  useEffect(() => {
+    setUrlValue(resolvedValues.url);
+    setNameValue(resolvedValues.name);
+    setSelectedType(resolvedValues.type);
+    setSelectedExtractorProfile(
+      resolvedValues.type === "rss"
+        ? (resolvedValues.extractorProfile || getDefaultExtractorProfileForType("rss"))
+        : resolvedValues.extractorProfile,
+    );
+    setPriorityLevel(priorityValueToLevel(resolvedValues.priority));
+    lastSuggestedNameRef.current = initialValues.id ? "" : recommendSourceNameFromUrl(resolvedValues.url);
+  }, [initialValues.id, resolvedValues.extractorProfile, resolvedValues.name, resolvedValues.priority, resolvedValues.type, resolvedValues.url]);
+
+  useEffect(() => {
+    if (!detectedType) {
+      return;
+    }
+
+    setSelectedType(detectedType);
+    setSelectedExtractorProfile(getDefaultExtractorProfileForType(detectedType));
+  }, [detectedType]);
+
+  useEffect(() => {
+    const nextSuggestedName = recommendSourceNameFromUrl(urlValue);
+
+    setNameValue((currentName) => {
+      const shouldAutoUpdate = currentName.trim() === "" || currentName === lastSuggestedNameRef.current;
+      lastSuggestedNameRef.current = nextSuggestedName;
+      return shouldAutoUpdate ? nextSuggestedName : currentName;
+    });
+  }, [urlValue]);
+
+  function handleTypeChange(nextType: SourceFormValues["type"]) {
+    setSelectedType(nextType);
+    setSelectedExtractorProfile(getDefaultExtractorProfileForType(nextType));
+  }
 
   return (
     <form
@@ -389,24 +434,49 @@ function SourceEditorForm({
       className="grid gap-4"
     >
       <input type="hidden" name="id" value={resolvedValues.id} />
+      <input type="hidden" name="priority" value={priorityLevelToValue(priorityLevel)} />
+      {isTypeLocked ? <input type="hidden" name="type" value={selectedType} /> : null}
 
-      <div className="grid gap-1.5">
+      <label className="grid gap-1.5">
+        <FieldLabel>URL</FieldLabel>
+        <Input
+          aria-label="URL"
+          name="url"
+          placeholder="https://..."
+          value={urlValue}
+          onChange={(event) => setUrlValue(event.currentTarget.value)}
+          disabled={!canManageSources}
+          required
+        />
+        <SourceTypeHint type={selectedType} />
+        {state.fieldErrors.url ? <p className="text-xs text-[#991b1b]">{state.fieldErrors.url}</p> : null}
+      </label>
+
+      <label className="grid gap-1.5">
         <FieldLabel>Name</FieldLabel>
-        <Input name="name" placeholder="NavPro release notes" defaultValue={resolvedValues.name} disabled={!canManageSources} required />
+        <Input
+          aria-label="Name"
+          name="name"
+          placeholder="NavPro release notes"
+          value={nameValue}
+          onChange={(event) => setNameValue(event.currentTarget.value)}
+          disabled={!canManageSources}
+          required
+        />
         {state.fieldErrors.name ? <p className="text-xs text-[#991b1b]">{state.fieldErrors.name}</p> : null}
-      </div>
+      </label>
 
       <div className="grid gap-4 md:grid-cols-2">
         <label className="grid gap-1.5">
           <FieldLabel>Type</FieldLabel>
           <Select
             name="type"
-            defaultValue={resolvedValues.type}
-            disabled={!canManageSources}
+            aria-label="Type"
+            value={selectedType}
+            disabled={!canManageSources || isTypeLocked}
             onChange={(event) => {
               const nextType = event.currentTarget.value as SourceFormValues["type"];
-              setSelectedType(nextType);
-              setSelectedExtractorProfile(nextType === "rss" ? "generic-rss" : "");
+              handleTypeChange(nextType);
             }}
           >
             <option value="website">Website</option>
@@ -414,10 +484,11 @@ function SourceEditorForm({
             <option value="youtube">YouTube</option>
             <option value="x">X</option>
           </Select>
+          {isTypeLocked ? <p className="text-xs leading-5 text-slate-500">Detected from URL</p> : null}
         </label>
         <label className="grid gap-1.5">
           <FieldLabel>Entity</FieldLabel>
-          <Select name="entityId" defaultValue={resolvedValues.entityId} disabled={!canManageSources}>
+          <Select aria-label="Entity" name="entityId" defaultValue={resolvedValues.entityId} disabled={!canManageSources}>
             <option value="">Unassigned</option>
             {snapshot.entities.map((entity) => (
               <option key={entity.id} value={entity.id}>
@@ -432,6 +503,7 @@ function SourceEditorForm({
         <label className="grid gap-1.5">
           <FieldLabel>Extractor</FieldLabel>
           <Select
+            aria-label="Extractor"
             name="extractorProfile"
             value={selectedExtractorProfile}
             disabled={!canManageSources}
@@ -447,17 +519,19 @@ function SourceEditorForm({
         </label>
       ) : null}
 
-      <div className="grid gap-1.5">
-        <FieldLabel>URL</FieldLabel>
-        <Input name="url" placeholder="https://..." defaultValue={resolvedValues.url} disabled={!canManageSources} required />
-        <SourceTypeHint type={selectedType} />
-        {state.fieldErrors.url ? <p className="text-xs text-[#991b1b]">{state.fieldErrors.url}</p> : null}
-      </div>
-
       <div className="grid gap-4 md:grid-cols-2">
         <label className="grid gap-1.5">
           <FieldLabel>Priority</FieldLabel>
-          <Input name="priority" type="number" min={0} max={100} defaultValue={resolvedValues.priority} disabled={!canManageSources} />
+          <Select
+            aria-label="Priority"
+            value={priorityLevel}
+            disabled={!canManageSources}
+            onChange={(event) => setPriorityLevel(event.currentTarget.value as SourcePriorityLevel)}
+          >
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+          </Select>
         </label>
         <label className="grid gap-1.5">
           <FieldLabel>Refresh</FieldLabel>
@@ -531,17 +605,20 @@ export function SourcesSettingsPanel({
   toggleAction: (formData: FormData) => Promise<void>;
   deleteAction: (formData: FormData) => Promise<void>;
 }) {
+  const router = useRouter();
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
   const [activeSourceId, setActiveSourceId] = useState<string | null>(null);
   const [deleteCandidateId, setDeleteCandidateId] = useState<string | null>(null);
+  const [deletedSourceIds, setDeletedSourceIds] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTypeFilter, setActiveTypeFilter] = useState<SourceType | "all">("all");
-  const activeSource = activeSourceId ? snapshot.sources.find((source) => source.id === activeSourceId) ?? null : null;
-  const deleteCandidate = deleteCandidateId
-    ? snapshot.sources.find((source) => source.id === deleteCandidateId) ?? null
-    : null;
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [, startRefreshTransition] = useTransition();
+  const visibleSources = snapshot.sources.filter((source) => !deletedSourceIds.includes(source.id));
+  const activeSource = activeSourceId ? visibleSources.find((source) => source.id === activeSourceId) ?? null : null;
+  const deleteCandidate = deleteCandidateId ? visibleSources.find((source) => source.id === deleteCandidateId) ?? null : null;
   const normalizedQuery = searchQuery.trim().toLowerCase();
-  const filteredSources = snapshot.sources.filter((source) => {
+  const filteredSources = visibleSources.filter((source) => {
     if (activeTypeFilter !== "all" && source.type !== activeTypeFilter) {
       return false;
     }
@@ -576,9 +653,44 @@ export function SourcesSettingsPanel({
     setActiveSourceId(null);
   }
 
+  function handleSourceSaveSuccess(message: string) {
+    closeSourceModal();
+    setStatusMessage(message);
+    startRefreshTransition(() => {
+      router.refresh();
+    });
+  }
+
+  function handleSourceDeleteSuccess(sourceId: string, sourceName: string) {
+    setDeleteCandidateId(null);
+    setDeletedSourceIds((currentIds) => (currentIds.includes(sourceId) ? currentIds : [...currentIds, sourceId]));
+    setStatusMessage(`Source deleted: ${sourceName}.`);
+    startRefreshTransition(() => {
+      router.refresh();
+    });
+  }
+
+  useEffect(() => {
+    if (!statusMessage) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      setStatusMessage((currentMessage) => (currentMessage === statusMessage ? null : currentMessage));
+    }, 4000);
+
+    return () => window.clearTimeout(timeout);
+  }, [statusMessage]);
+
   return (
     <>
       <div className="grid gap-4">
+        {statusMessage ? (
+          <div className="rounded-[20px] border border-emerald-200 bg-emerald-50/80 px-4 py-3 text-sm text-emerald-700">
+            {statusMessage}
+          </div>
+        ) : null}
+
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="min-w-0 flex-1">
             <label className="block">
@@ -633,7 +745,7 @@ export function SourcesSettingsPanel({
             ))}
           </div>
           <p className="text-sm text-slate-500">
-            {filteredSources.length} of {snapshot.sources.length} sources
+            {filteredSources.length} of {visibleSources.length} sources
           </p>
         </div>
 
@@ -664,7 +776,7 @@ export function SourcesSettingsPanel({
                       })}
                     </div>
                     <p className="mt-3 text-xs text-slate-500">
-                      Priority {source.priority} · every {source.refreshMinutes} min ·{" "}
+                      Priority {getPriorityLabel(priorityValueToLevel(source.priority))} · every {source.refreshMinutes} min ·{" "}
                       {source.lastFetchedAt ? `validated ${formatRelativeTime(source.lastFetchedAt)}` : "not validated yet"}
                     </p>
                     {source.lastErrorMessage ? <p className="mt-2 text-sm text-[#991b1b]">{source.lastErrorMessage}</p> : null}
@@ -711,12 +823,14 @@ export function SourcesSettingsPanel({
         createAction={createAction}
         updateAction={updateAction}
         onClose={closeSourceModal}
+        onSuccess={handleSourceSaveSuccess}
       />
       <DeleteSourceModal
         source={deleteCandidate}
         canManageSources={canManageSources}
         deleteAction={deleteAction}
         onClose={() => setDeleteCandidateId(null)}
+        onSuccess={handleSourceDeleteSuccess}
       />
     </>
   );

@@ -15,6 +15,7 @@ const createId = () => crypto.randomUUID();
 
 export const membershipRoleEnum = pgEnum("membership_role", ["owner", "editor", "viewer"]);
 export const entityKindEnum = pgEnum("entity_kind", ["topic", "competitor", "product"]);
+export const themeToneEnum = pgEnum("theme_tone", ["mint", "sand", "ink", "amber"]);
 export const sourceTypeEnum = pgEnum("source_type", ["rss", "website", "youtube", "x"]);
 export const sourceHealthEnum = pgEnum("source_health", ["healthy", "stale", "degraded", "error"]);
 export const feedItemTypeEnum = pgEnum("feed_item_type", ["article", "video", "post", "update"]);
@@ -134,6 +135,24 @@ export const tags = pgTable("tags", {
   color: text("color").notNull().default("#197d71"),
   parentId: text("parent_id"),
   isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const categories = pgTable("categories", {
+  id: text("id").primaryKey().$defaultFn(createId),
+  workspaceId: text("workspace_id")
+    .notNull()
+    .references(() => workspaces.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  slug: text("slug").notNull(),
+  description: text("description").notNull().default(""),
+  tone: themeToneEnum("tone").notNull().default("sand"),
+  position: integer("position").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  tagIds: jsonb("tag_ids").notNull().default(sql`'[]'::jsonb`),
+  entityIds: jsonb("entity_ids").notNull().default(sql`'[]'::jsonb`),
+  entityKinds: jsonb("entity_kinds").notNull().default(sql`'[]'::jsonb`),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

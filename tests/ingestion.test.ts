@@ -55,6 +55,28 @@ describe("ingestion adapters", () => {
     expect(deduped).toHaveLength(1);
   });
 
+  it("normalizes X status urls before deduplicating", () => {
+    const deduped = dedupeIncomingItems([
+      {
+        title: "Same launch",
+        excerpt: "A",
+        canonicalUrl: "https://twitter.com/AILoadboard/status/1001/",
+        publishedAt: new Date(),
+        contentType: "post",
+      },
+      {
+        title: "Same launch",
+        excerpt: "B",
+        canonicalUrl: "https://x.com/ailoadboard/status/1001#conversation",
+        publishedAt: new Date(),
+        contentType: "post",
+      },
+    ]);
+
+    expect(deduped).toHaveLength(1);
+    expect(deduped[0]?.canonicalUrl).toBe("https://x.com/ailoadboard/status/1001");
+  });
+
   it("applies keyword rules to incoming items", () => {
     const item = {
       title: "Broker pricing update is now live",

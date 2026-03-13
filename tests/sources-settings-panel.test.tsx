@@ -1,8 +1,20 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SourcesSettingsPanel } from "@/components/settings/sources-settings-panel";
 import type { AdminSnapshot } from "@/lib/domain";
+import { seedCategories } from "@/lib/seed";
+import { createEmptySourceFormValues, createSourceMutationState } from "@/lib/source-forms";
+
+const { routerRefresh } = vi.hoisted(() => ({
+  routerRefresh: vi.fn(),
+}));
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    refresh: routerRefresh,
+  }),
+}));
 
 function buildSnapshot(): AdminSnapshot {
   return {
@@ -22,7 +34,7 @@ function buildSnapshot(): AdminSnapshot {
         type: "youtube",
         url: "https://www.youtube.com/@OpenAI",
         refreshMinutes: 30,
-        priority: 98,
+        priority: 70,
         isActive: true,
         healthStatus: "healthy",
         config: {
@@ -46,7 +58,7 @@ function buildSnapshot(): AdminSnapshot {
         type: "x",
         url: "https://x.com/andy_hooke",
         refreshMinutes: 30,
-        priority: 96,
+        priority: 90,
         isActive: true,
         healthStatus: "healthy",
         config: {
@@ -65,7 +77,7 @@ function buildSnapshot(): AdminSnapshot {
         type: "website",
         url: "https://truckerpath.com/blog/",
         refreshMinutes: 60,
-        priority: 95,
+        priority: 30,
         isActive: true,
         healthStatus: "healthy",
         config: {},
@@ -123,8 +135,8 @@ function buildSnapshot(): AdminSnapshot {
         isActive: true,
       },
     ],
+    categories: seedCategories,
     rules: [],
-    feedItems: [],
   };
 }
 
@@ -132,6 +144,12 @@ const noopSourceAction = vi.fn(async (state) => state);
 const noopFormAction = vi.fn(async () => {});
 
 describe("SourcesSettingsPanel", () => {
+  beforeEach(() => {
+    routerRefresh.mockReset();
+    noopSourceAction.mockClear();
+    noopFormAction.mockClear();
+  });
+
   it("shows the demo-mode lock reason and disables mutations", () => {
     render(
       <SourcesSettingsPanel
@@ -171,8 +189,15 @@ describe("SourcesSettingsPanel", () => {
 
     await user.click(screen.getByRole("button", { name: "Add source" }));
 
-    expect(screen.getByRole("dialog", { name: "Add source" })).toBeInTheDocument();
+    const dialog = screen.getByRole("dialog", { name: "Add source" });
+    expect(dialog).toBeInTheDocument();
     expect(screen.getByPlaceholderText("NavPro release notes")).toBeInTheDocument();
+    expect(within(dialog).getByRole("textbox", { name: "URL" })).toBeInTheDocument();
+
+    const textboxes = within(dialog).getAllByRole("textbox");
+    expect(textboxes[0]).toHaveAttribute("name", "url");
+    expect(textboxes[1]).toHaveAttribute("name", "name");
+    expect(within(dialog).getByRole("combobox", { name: "Priority" })).toHaveValue("medium");
   });
 
   it("prefills the edit modal with the selected source", async () => {
@@ -196,6 +221,7 @@ describe("SourcesSettingsPanel", () => {
     expect(screen.getByDisplayValue("OpenAI YouTube")).toBeInTheDocument();
     expect(screen.getByDisplayValue("https://www.youtube.com/@OpenAI")).toBeInTheDocument();
     expect(screen.getByText(/Accepts YouTube feed URLs/i)).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Priority" })).toHaveValue("medium");
   });
 
   it("asks for confirmation before deleting a source", async () => {
@@ -217,6 +243,67 @@ describe("SourcesSettingsPanel", () => {
 
     expect(screen.getByRole("dialog", { name: "Delete source" })).toBeInTheDocument();
     expect(screen.getByText("Delete OpenAI YouTube?")).toBeInTheDocument();
+  });
+
+  it("closes the delete modal immediately, removes the source locally, and refreshes in the background", async () => {
+    const user = userEvent.setup();
+    const deleteAction = vi.fn(async () => {});
+
+    render(
+      <SourcesSettingsPanel
+        snapshot={buildSnapshot()}
+        canManageSources
+        isDemoMode={false}
+        createAction={noopSourceAction}
+        updateAction={noopSourceAction}
+        toggleAction={noopFormAction}
+        deleteAction={deleteAction}
+      />,
+    );
+
+    await user.click(screen.getAllByRole("button", { name: "Delete" })[0]);
+    const dialog = screen.getByRole("dialog", { name: "Delete source" });
+    await user.click(within(dialog).getByRole("button", { name: "Delete source" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Delete source" })).not.toBeInTheDocument();
+    });
+
+    expect(deleteAction).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("OpenAI YouTube")).not.toBeInTheDocument();
+    expect(screen.getByText("Source deleted: OpenAI YouTube.")).toBeInTheDocument();
+    expect(routerRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the delete modal open when deletion fails and does not remove the source", async () => {
+    const user = userEvent.setup();
+    const deleteAction = vi.fn(async () => {
+      throw new Error("Delete failed.");
+    });
+
+    render(
+      <SourcesSettingsPanel
+        snapshot={buildSnapshot()}
+        canManageSources
+        isDemoMode={false}
+        createAction={noopSourceAction}
+        updateAction={noopSourceAction}
+        toggleAction={noopFormAction}
+        deleteAction={deleteAction}
+      />,
+    );
+
+    await user.click(screen.getAllByRole("button", { name: "Delete" })[0]);
+    const dialog = screen.getByRole("dialog", { name: "Delete source" });
+    await user.click(within(dialog).getByRole("button", { name: "Delete source" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Delete failed.")).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole("dialog", { name: "Delete source" })).toBeInTheDocument();
+    expect(screen.getAllByText("OpenAI YouTube")).toHaveLength(2);
+    expect(routerRefresh).not.toHaveBeenCalled();
   });
 
   it("filters sources by keyword and type", async () => {
@@ -248,5 +335,233 @@ describe("SourcesSettingsPanel", () => {
     expect(screen.getByText("1 of 3 sources")).toBeInTheDocument();
     expect(screen.getByText("Trucker Path Blog")).toBeInTheDocument();
     expect(screen.queryByText("Andy Hooke X")).not.toBeInTheDocument();
+  });
+
+  it("auto-detects X and YouTube URLs and locks the type field", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <SourcesSettingsPanel
+        snapshot={buildSnapshot()}
+        canManageSources
+        isDemoMode={false}
+        createAction={noopSourceAction}
+        updateAction={noopSourceAction}
+        toggleAction={noopFormAction}
+        deleteAction={noopFormAction}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Add source" }));
+
+    const urlInput = screen.getByRole("textbox", { name: "URL" });
+    const nameInput = screen.getByRole("textbox", { name: "Name" });
+    const typeSelect = screen.getByRole("combobox", { name: "Type" });
+
+    await user.type(urlInput, "https://x.com/andy_hooke");
+
+    expect(nameInput).toHaveValue("Andy Hooke");
+    expect(typeSelect).toHaveValue("x");
+    expect(typeSelect).toBeDisabled();
+    expect(screen.getByText("Detected from URL")).toBeInTheDocument();
+
+    await user.clear(urlInput);
+    await user.type(urlInput, "https://www.youtube.com/@OpenAI");
+
+    expect(nameInput).toHaveValue("OpenAI");
+    expect(typeSelect).toHaveValue("youtube");
+    expect(typeSelect).toBeDisabled();
+  });
+
+  it("unlocks type and updates extractor behavior when the URL is generic", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <SourcesSettingsPanel
+        snapshot={buildSnapshot()}
+        canManageSources
+        isDemoMode={false}
+        createAction={noopSourceAction}
+        updateAction={noopSourceAction}
+        toggleAction={noopFormAction}
+        deleteAction={noopFormAction}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Add source" }));
+
+    const urlInput = screen.getByRole("textbox", { name: "URL" });
+    const typeSelect = screen.getByRole("combobox", { name: "Type" });
+
+    await user.type(urlInput, "https://x.com/andy_hooke");
+    expect(typeSelect).toBeDisabled();
+
+    await user.clear(urlInput);
+    await user.type(urlInput, "https://example.com/feed");
+
+    expect(typeSelect).not.toBeDisabled();
+    expect(typeSelect).toHaveValue("x");
+
+    await user.selectOptions(typeSelect, "rss");
+
+    expect(screen.getByRole("combobox", { name: "Extractor" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Extractor" })).toHaveValue("generic-rss");
+
+    await user.clear(urlInput);
+    await user.type(urlInput, "https://www.youtube.com/@Framer");
+
+    expect(screen.queryByRole("combobox", { name: "Extractor" })).not.toBeInTheDocument();
+    expect(typeSelect).toHaveValue("youtube");
+    expect(typeSelect).toBeDisabled();
+  });
+
+  it("shows priority labels in the source list instead of raw numbers", () => {
+    render(
+      <SourcesSettingsPanel
+        snapshot={buildSnapshot()}
+        canManageSources
+        isDemoMode={false}
+        createAction={noopSourceAction}
+        updateAction={noopSourceAction}
+        toggleAction={noopFormAction}
+        deleteAction={noopFormAction}
+      />,
+    );
+
+    expect(screen.getByText(/Priority Medium/)).toBeInTheDocument();
+    expect(screen.getByText(/Priority High/)).toBeInTheDocument();
+    expect(screen.getByText(/Priority Low/)).toBeInTheDocument();
+    expect(screen.queryByText(/Priority 70/)).not.toBeInTheDocument();
+  });
+
+  it("keeps updating the auto-filled name until the user customizes it", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <SourcesSettingsPanel
+        snapshot={buildSnapshot()}
+        canManageSources
+        isDemoMode={false}
+        createAction={noopSourceAction}
+        updateAction={noopSourceAction}
+        toggleAction={noopFormAction}
+        deleteAction={noopFormAction}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Add source" }));
+
+    const urlInput = screen.getByRole("textbox", { name: "URL" });
+    const nameInput = screen.getByRole("textbox", { name: "Name" });
+
+    await user.type(urlInput, "https://x.com/SuperDesignDev");
+    expect(nameInput).toHaveValue("Super Design Dev");
+
+    await user.clear(urlInput);
+    await user.type(urlInput, "https://onepagelove.com/feed");
+    expect(nameInput).toHaveValue("One Page Love");
+
+    await user.clear(nameInput);
+    await user.type(nameInput, "Custom Brand");
+    await user.clear(urlInput);
+    await user.type(urlInput, "https://www.youtube.com/@Framer");
+
+    expect(nameInput).toHaveValue("Custom Brand");
+  });
+
+  it("does not auto-rewrite an existing saved source name in edit mode", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <SourcesSettingsPanel
+        snapshot={buildSnapshot()}
+        canManageSources
+        isDemoMode={false}
+        createAction={noopSourceAction}
+        updateAction={noopSourceAction}
+        toggleAction={noopFormAction}
+        deleteAction={noopFormAction}
+      />,
+    );
+
+    await user.click(screen.getAllByRole("button", { name: "Edit" })[0]);
+
+    const urlInput = screen.getByRole("textbox", { name: "URL" });
+    const nameInput = screen.getByRole("textbox", { name: "Name" });
+
+    expect(nameInput).toHaveValue("OpenAI YouTube");
+
+    await user.clear(urlInput);
+    await user.type(urlInput, "https://www.youtube.com/@Framer");
+
+    expect(nameInput).toHaveValue("OpenAI YouTube");
+  });
+
+  it("resumes auto-fill after the user clears a customized name and changes the URL again", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <SourcesSettingsPanel
+        snapshot={buildSnapshot()}
+        canManageSources
+        isDemoMode={false}
+        createAction={noopSourceAction}
+        updateAction={noopSourceAction}
+        toggleAction={noopFormAction}
+        deleteAction={noopFormAction}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Add source" }));
+
+    const urlInput = screen.getByRole("textbox", { name: "URL" });
+    const nameInput = screen.getByRole("textbox", { name: "Name" });
+
+    await user.type(urlInput, "https://x.com/SuperDesignDev");
+    expect(nameInput).toHaveValue("Super Design Dev");
+
+    await user.clear(nameInput);
+    await user.type(nameInput, "My Manual Name");
+    await user.clear(nameInput);
+
+    await user.clear(urlInput);
+    await user.type(urlInput, "https://www.youtube.com/@Framer");
+
+    expect(nameInput).toHaveValue("Framer");
+  });
+
+  it("closes the modal immediately, shows a local success message, and refreshes in the background", async () => {
+    const user = userEvent.setup();
+    const createAction = vi.fn(async () =>
+      createSourceMutationState(createEmptySourceFormValues(), {
+        status: "success",
+        message: "Source created. Background validation started.",
+      }),
+    );
+
+    render(
+      <SourcesSettingsPanel
+        snapshot={buildSnapshot()}
+        canManageSources
+        isDemoMode={false}
+        createAction={createAction}
+        updateAction={noopSourceAction}
+        toggleAction={noopFormAction}
+        deleteAction={noopFormAction}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Add source" }));
+    const dialog = screen.getByRole("dialog", { name: "Add source" });
+    await user.type(within(dialog).getByRole("textbox", { name: "URL" }), "https://example.com/feed");
+    await user.type(within(dialog).getByRole("textbox", { name: "Name" }), "Example Feed");
+    await user.click(within(dialog).getByRole("button", { name: "Add source" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Add source" })).not.toBeInTheDocument();
+    });
+
+    expect(screen.getByText("Source created. Background validation started.")).toBeInTheDocument();
+    expect(routerRefresh).toHaveBeenCalledTimes(1);
   });
 });

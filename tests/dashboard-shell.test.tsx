@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import type { DashboardFilters, DashboardSnapshot } from "@/lib/domain";
+import { seedCategories } from "@/lib/seed";
 
 const push = vi.fn();
 let currentSearch = "";
@@ -30,6 +31,7 @@ const snapshot: DashboardSnapshot = {
   activeView: "all",
   feedItems: [],
   sections: [],
+  categories: seedCategories,
   tags: [],
   entities: [],
   sources: [],
@@ -59,6 +61,6 @@ describe("DashboardShell", () => {
     expect(screen.getByRole("button", { name: "Competitor Watch" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("heading", { name: "Competitor Watch" })).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("Loading Competitor Watch...");
-    expect(push).toHaveBeenCalledWith("/?view=competitor-watch");
+    expect(push).toHaveBeenCalledWith("/?view=category_competitor_watch");
   });
 });

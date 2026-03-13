@@ -21,6 +21,9 @@ export const metadata: Metadata = {
   description: "A compact feed for sources, signals, and watchlist settings.",
 };
 
+const isAgentationEnabled =
+  process.env.NODE_ENV === "development" && process.env.NEXT_PUBLIC_AGENTATION_ENABLED === "true";
+
 export default async function RootLayout({
   children,
 }: Readonly<{
@@ -31,10 +34,13 @@ export default async function RootLayout({
 
   return (
     <html lang="en">
-      <body className={`${bodyFont.variable} ${displayFont.variable} min-h-screen antialiased`}>
+      <body
+        suppressHydrationWarning
+        className={`${bodyFont.variable} ${displayFont.variable} min-h-screen antialiased`}
+      >
         {children}
         <SettingsFlashToast key={initialToast?.id ?? "settings-toast-empty"} initialToast={initialToast} />
-        {process.env.NODE_ENV === "development" && <Agentation />}
+        {isAgentationEnabled ? <Agentation /> : null}
       </body>
     </html>
   );

@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { requireDb } from "@/lib/db";
 import {
+  categories,
   entities,
   feedItems,
   feedItemSources,
@@ -12,6 +13,7 @@ import {
 } from "@/lib/db/schema";
 import {
   defaultWorkspace,
+  seedCategories,
   seedEntities,
   seedFeedItems,
   seedSources,
@@ -24,6 +26,7 @@ async function main() {
   await db.insert(workspaces).values(defaultWorkspace).onConflictDoNothing();
   await db.insert(tags).values(seedTags).onConflictDoNothing();
   await db.insert(entities).values(seedEntities).onConflictDoNothing();
+  await db.insert(categories).values(seedCategories).onConflictDoNothing();
   await db
     .insert(sources)
     .values(

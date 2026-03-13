@@ -12,12 +12,14 @@ export function SettingsDialog({
   sourcesPanel,
   entitiesPanel,
   tagsPanel,
+  categoriesPanel,
   rulesPanel,
 }: {
   defaultTab?: SettingsTabId;
   sourcesPanel: React.ReactNode;
   entitiesPanel: React.ReactNode;
   tagsPanel: React.ReactNode;
+  categoriesPanel: React.ReactNode;
   rulesPanel: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -49,6 +51,7 @@ export function SettingsDialog({
     sources: sourcesPanel,
     entities: entitiesPanel,
     tags: tagsPanel,
+    categories: categoriesPanel,
     rules: rulesPanel,
   };
 
@@ -81,7 +84,7 @@ export function SettingsDialog({
                   <h2 id="settings-dialog-title" className="text-base font-semibold tracking-tight text-slate-950">
                     Settings
                   </h2>
-                  <p className="text-sm text-slate-500">Sources, entities, tags, rules.</p>
+                  <p className="text-sm text-slate-500">Sources, entities, tags, categories, rules.</p>
                 </div>
                 <Button variant="ghost" size="sm" aria-label="Close settings" onClick={() => setOpen(false)}>
                   <X className="size-4" />

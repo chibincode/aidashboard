@@ -1,15 +1,14 @@
-import { createHash } from "node:crypto";
 import type { NormalizedIncomingItem } from "@/lib/ingestion/types";
+import { fingerprintForFeedItem, normalizeFeedItemUrl } from "@/lib/feed-item-identity";
 
-export function fingerprintForItem(item: Pick<NormalizedIncomingItem, "canonicalUrl" | "title">) {
-  const value = `${item.canonicalUrl}::${item.title}`.toLowerCase();
-  return createHash("sha256").update(value).digest("hex");
-}
+export const fingerprintForItem = fingerprintForFeedItem;
 
 export function dedupeIncomingItems(items: NormalizedIncomingItem[]) {
   const seen = new Set<string>();
 
   return items.filter((item) => {
+    item.canonicalUrl = normalizeFeedItemUrl(item.canonicalUrl);
+
     const fingerprint = item.fingerprint ?? fingerprintForItem(item);
     if (seen.has(fingerprint)) {
       return false;

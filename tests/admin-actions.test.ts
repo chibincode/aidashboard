@@ -1,27 +1,36 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createCategoryMutationState, createEmptyCategoryFormValues } from "@/lib/category-forms";
 import { createEmptySourceFormValues, createSourceMutationState } from "@/lib/source-forms";
 
 const {
+  createCategoryRecord,
   createSourceRecord,
+  deleteCategoryRecord,
   deleteEntityRecord,
   deleteRuleRecord,
   deleteSourceRecord,
   deleteTagRecord,
+  toggleCategoryRecord,
   updateSourceRecord,
+  updateCategoryRecord,
   getSourceRecordById,
-  syncSourceById,
+  inngestSend,
   revalidatePath,
   cookieStore,
   requireOwnerActionSession,
 } = vi.hoisted(() => ({
+  createCategoryRecord: vi.fn(),
   createSourceRecord: vi.fn(),
+  deleteCategoryRecord: vi.fn(),
   deleteEntityRecord: vi.fn(),
   deleteRuleRecord: vi.fn(),
   deleteSourceRecord: vi.fn(),
   deleteTagRecord: vi.fn(),
+  toggleCategoryRecord: vi.fn(),
   updateSourceRecord: vi.fn(),
+  updateCategoryRecord: vi.fn(),
   getSourceRecordById: vi.fn(),
-  syncSourceById: vi.fn(),
+  inngestSend: vi.fn(),
   revalidatePath: vi.fn(),
   cookieStore: {
     set: vi.fn(),
@@ -45,8 +54,10 @@ vi.mock("next/headers", () => ({
   cookies: vi.fn(async () => cookieStore),
 }));
 
-vi.mock("@/lib/ingestion/sync", () => ({
-  syncSourceById,
+vi.mock("@/inngest/client", () => ({
+  inngest: {
+    send: inngestSend,
+  },
 }));
 
 vi.mock("@/lib/auth-guards", () => ({
@@ -54,29 +65,33 @@ vi.mock("@/lib/auth-guards", () => ({
 }));
 
 vi.mock("@/lib/repositories/app-repository", () => ({
+  createCategoryRecord,
   createEntityRecord: vi.fn(),
   createRuleRecord: vi.fn(),
   createSourceRecord,
   createTagRecord: vi.fn(),
+  deleteCategoryRecord,
   deleteEntityRecord,
   deleteRuleRecord,
   deleteSourceRecord,
   deleteTagRecord,
   getSourceRecordById,
+  toggleCategoryRecord,
   toggleRuleRecord: vi.fn(),
   toggleSourceRecord: vi.fn(),
   toggleTagRecord: vi.fn(),
+  updateCategoryRecord,
   updateSourceRecord,
 }));
 
 describe("admin source actions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    inngestSend.mockResolvedValue({ ids: ["evt_1"] });
   });
 
-  it("stores normalized YouTube config on create and validates immediately", async () => {
+  it("stores normalized YouTube config on create and schedules background validation", async () => {
     createSourceRecord.mockResolvedValue("source_openai");
-    syncSourceById.mockResolvedValue({ sourceId: "source_openai" });
 
     const { createSourceAction } = await import("@/actions/admin");
     const formData = new FormData();
@@ -102,11 +117,23 @@ describe("admin source actions", () => {
       }),
     );
     expect(requireOwnerActionSession).toHaveBeenCalled();
-    expect(syncSourceById).toHaveBeenCalledWith("source_openai");
+    expect(inngestSend).toHaveBeenCalledWith({
+      name: "signal/source.sync",
+      data: { sourceId: "source_openai" },
+    });
     expect(result.status).toBe("success");
-    expect(result.message).toContain("validated");
-    expect(revalidatePath).toHaveBeenCalledWith("/admin/sources");
-    expect(revalidatePath).toHaveBeenCalledWith("/");
+    expect(result.message).toBe("Source created. Background validation started.");
+    expect(cookieStore.set).toHaveBeenCalledWith(
+      "settings-toast",
+      expect.any(String),
+      expect.objectContaining({
+        path: "/",
+        maxAge: 60,
+        sameSite: "lax",
+      }),
+    );
+    expect(revalidatePath).not.toHaveBeenCalledWith("/admin/sources");
+    expect(revalidatePath).not.toHaveBeenCalledWith("/");
   });
 
   it("does not persist invalid YouTube url formats", async () => {
@@ -126,7 +153,7 @@ describe("admin source actions", () => {
     expect(result.fieldErrors.url).toContain("/channel/");
   });
 
-  it("updates sources with rewritten YouTube config", async () => {
+  it("updates sources with rewritten YouTube config and schedules background validation", async () => {
     getSourceRecordById.mockResolvedValue({
       id: "source_openai",
       workspaceId: "ws_1",
@@ -145,7 +172,6 @@ describe("admin source actions", () => {
       lastErrorMessage: null,
     });
     updateSourceRecord.mockResolvedValue("source_openai");
-    syncSourceById.mockRejectedValue(new Error("Fetch failed"));
 
     const { updateSourceAction } = await import("@/actions/admin");
     const formData = new FormData();
@@ -173,13 +199,18 @@ describe("admin source actions", () => {
         }),
       }),
     );
-    expect(result.status).toBe("error");
-    expect(result.message).toContain("validation failed");
+    expect(inngestSend).toHaveBeenCalledWith({
+      name: "signal/source.sync",
+      data: { sourceId: "source_openai" },
+    });
+    expect(result.status).toBe("success");
+    expect(result.message).toBe("Source updated. Background validation started.");
+    expect(revalidatePath).not.toHaveBeenCalledWith("/admin/sources");
+    expect(revalidatePath).not.toHaveBeenCalledWith("/");
   });
 
   it("stores gallery extractor config for website inspiration sources", async () => {
     createSourceRecord.mockResolvedValue("source_a1_gallery");
-    syncSourceById.mockResolvedValue({ sourceId: "source_a1_gallery" });
 
     const { createSourceAction } = await import("@/actions/admin");
     const formData = new FormData();
@@ -208,9 +239,8 @@ describe("admin source actions", () => {
     expect(result.status).toBe("success");
   });
 
-  it("stores normalized X config on create and validates immediately", async () => {
+  it("stores normalized X config on create and schedules background validation", async () => {
     createSourceRecord.mockResolvedValue("source_riyvir");
-    syncSourceById.mockResolvedValue({ sourceId: "source_riyvir", warnings: [] });
 
     const { createSourceAction } = await import("@/actions/admin");
     const formData = new FormData();
@@ -238,8 +268,41 @@ describe("admin source actions", () => {
         },
       }),
     );
-    expect(syncSourceById).toHaveBeenCalledWith("source_riyvir");
+    expect(inngestSend).toHaveBeenCalledWith({
+      name: "signal/source.sync",
+      data: { sourceId: "source_riyvir" },
+    });
     expect(result.status).toBe("success");
+  });
+
+  it("returns success when scheduling background validation fails after create", async () => {
+    createSourceRecord.mockResolvedValue("source_framer");
+    inngestSend.mockRejectedValueOnce(new Error("Queue unavailable"));
+
+    const { createSourceAction } = await import("@/actions/admin");
+    const formData = new FormData();
+    formData.set("name", "Framer");
+    formData.set("type", "website");
+    formData.set("url", "https://www.framer.com/");
+    formData.set("priority", "70");
+    formData.set("refreshMinutes", "30");
+    formData.set("isActive", "on");
+
+    const result = await createSourceAction(
+      createSourceMutationState(createEmptySourceFormValues()),
+      formData,
+    );
+
+    expect(createSourceRecord).toHaveBeenCalled();
+    expect(inngestSend).toHaveBeenCalledWith({
+      name: "signal/source.sync",
+      data: { sourceId: "source_framer" },
+    });
+    expect(result.status).toBe("success");
+    expect(result.message).toBe("Source saved, but background validation could not be scheduled.");
+    expect(cookieStore.set).toHaveBeenCalled();
+    expect(revalidatePath).not.toHaveBeenCalledWith("/admin/sources");
+    expect(revalidatePath).not.toHaveBeenCalledWith("/");
   });
 
   it("sets a flash toast when deleting a source", async () => {
@@ -259,11 +322,16 @@ describe("admin source actions", () => {
         sameSite: "lax",
       }),
     );
-    expect(revalidatePath).toHaveBeenCalledWith("/admin/sources");
+    expect(revalidatePath).not.toHaveBeenCalledWith("/admin/sources");
+    expect(revalidatePath).not.toHaveBeenCalledWith("/");
   });
 
   it("sets a flash toast when deleting other settings resources", async () => {
-    const { deleteEntityAction, deleteTagAction, deleteRuleAction } = await import("@/actions/admin");
+    const { deleteCategoryAction, deleteEntityAction, deleteTagAction, deleteRuleAction } = await import("@/actions/admin");
+
+    const categoryFormData = new FormData();
+    categoryFormData.set("id", "category_1");
+    await deleteCategoryAction(categoryFormData);
 
     const entityFormData = new FormData();
     entityFormData.set("id", "entity_1");
@@ -277,10 +345,12 @@ describe("admin source actions", () => {
     ruleFormData.set("id", "rule_1");
     await deleteRuleAction(ruleFormData);
 
+    expect(deleteCategoryRecord).toHaveBeenCalledWith("category_1");
     expect(deleteEntityRecord).toHaveBeenCalledWith("entity_1");
     expect(deleteTagRecord).toHaveBeenCalledWith("tag_1");
     expect(deleteRuleRecord).toHaveBeenCalledWith("rule_1");
-    expect(cookieStore.set).toHaveBeenCalledTimes(3);
+    expect(cookieStore.set).toHaveBeenCalledTimes(4);
+    expect(revalidatePath).toHaveBeenCalledWith("/admin/categories");
     expect(revalidatePath).toHaveBeenCalledWith("/admin/entities");
     expect(revalidatePath).toHaveBeenCalledWith("/admin/tags");
     expect(revalidatePath).toHaveBeenCalledWith("/admin/rules");
@@ -295,5 +365,98 @@ describe("admin source actions", () => {
 
     await expect(deleteSourceAction(formData)).rejects.toThrow("Unauthorized");
     expect(deleteSourceRecord).not.toHaveBeenCalled();
+  });
+});
+
+describe("admin category actions", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("creates categories with tags, entities, and entity kinds", async () => {
+    const { createCategoryAction } = await import("@/actions/admin");
+    const formData = new FormData();
+    formData.set("name", "Competitor Watch");
+    formData.set("description", "Everything competitor related.");
+    formData.set("tone", "amber");
+    formData.set("position", "30");
+    formData.set("isActive", "on");
+    formData.append("entityKinds", "competitor");
+    formData.append("tagIds", "tag_competitor");
+    formData.append("entityIds", "entity_tp");
+
+    const result = await createCategoryAction(
+      createCategoryMutationState(createEmptyCategoryFormValues()),
+      formData,
+    );
+
+    expect(createCategoryRecord).toHaveBeenCalledWith({
+      name: "Competitor Watch",
+      description: "Everything competitor related.",
+      tone: "amber",
+      position: 30,
+      isActive: true,
+      tagIds: ["tag_competitor"],
+      entityIds: ["entity_tp"],
+      entityKinds: ["competitor"],
+    });
+    expect(result.status).toBe("success");
+    expect(revalidatePath).toHaveBeenCalledWith("/admin/categories");
+    expect(revalidatePath).toHaveBeenCalledWith("/");
+  });
+
+  it("rejects categories without matching selectors", async () => {
+    const { createCategoryAction } = await import("@/actions/admin");
+    const formData = new FormData();
+    formData.set("name", "Empty");
+    formData.set("tone", "sand");
+    formData.set("position", "10");
+
+    const result = await createCategoryAction(
+      createCategoryMutationState(createEmptyCategoryFormValues()),
+      formData,
+    );
+
+    expect(createCategoryRecord).not.toHaveBeenCalled();
+    expect(result.status).toBe("error");
+    expect(result.fieldErrors.conditions).toContain("Choose at least one");
+  });
+
+  it("updates and toggles categories", async () => {
+    const { toggleCategoryAction, updateCategoryAction } = await import("@/actions/admin");
+
+    const updateFormData = new FormData();
+    updateFormData.set("id", "category_1");
+    updateFormData.set("name", "Signals");
+    updateFormData.set("description", "Updated description");
+    updateFormData.set("tone", "mint");
+    updateFormData.set("position", "20");
+    updateFormData.set("isActive", "on");
+    updateFormData.append("tagIds", "tag_aiux");
+
+    const result = await updateCategoryAction(
+      createCategoryMutationState(createEmptyCategoryFormValues({ id: "category_1" })),
+      updateFormData,
+    );
+
+    expect(updateCategoryRecord).toHaveBeenCalledWith({
+      id: "category_1",
+      name: "Signals",
+      description: "Updated description",
+      tone: "mint",
+      position: 20,
+      isActive: true,
+      tagIds: ["tag_aiux"],
+      entityIds: [],
+      entityKinds: [],
+    });
+    expect(result.status).toBe("success");
+
+    const toggleFormData = new FormData();
+    toggleFormData.set("id", "category_1");
+    toggleFormData.set("isActive", "false");
+    await toggleCategoryAction(toggleFormData);
+
+    expect(toggleCategoryRecord).toHaveBeenCalledWith("category_1", false);
   });
 });

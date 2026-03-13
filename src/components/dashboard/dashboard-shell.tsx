@@ -9,11 +9,17 @@ import { getDashboardViewLabel } from "@/components/dashboard/view-meta";
 import { Card } from "@/components/ui/card";
 import type { DashboardFilters, DashboardSnapshot, DashboardView } from "@/lib/domain";
 
-function DashboardFeedSkeleton({ view }: { view: DashboardView }) {
+function DashboardFeedSkeleton({
+  view,
+  categories,
+}: {
+  view: DashboardView;
+  categories: DashboardSnapshot["categories"];
+}) {
   return (
     <div aria-busy="true" aria-live="polite">
       <p className="mb-4 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400" role="status">
-        Loading {getDashboardViewLabel(view)}...
+        Loading {getDashboardViewLabel(view, categories)}...
       </p>
       <div className="grid gap-4">
         {Array.from({ length: 3 }).map((_, index) => (
@@ -60,7 +66,7 @@ export function DashboardShell({
   const resolvedPendingView = pendingView === snapshot.activeView ? null : pendingView;
   const isViewPending = resolvedPendingView !== null;
   const displayedView = resolvedPendingView ?? snapshot.activeView;
-  const activeLabel = getDashboardViewLabel(displayedView);
+  const activeLabel = getDashboardViewLabel(displayedView, snapshot.categories);
 
   function setView(view: DashboardView) {
     if (view === snapshot.activeView && resolvedPendingView === null) {
@@ -85,7 +91,7 @@ export function DashboardShell({
   return (
     <section className="grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-10">
       <aside className="lg:sticky lg:top-16 lg:self-start">
-        <DashboardViewTabs activeView={displayedView} layout="sidebar" onChange={setView} />
+        <DashboardViewTabs activeView={displayedView} categories={snapshot.categories} layout="sidebar" onChange={setView} />
         <div className="mt-4">
           <DashboardFiltersBar filters={filters} tags={snapshot.tags} entities={snapshot.entities} layout="sidebar" />
         </div>
@@ -107,7 +113,7 @@ export function DashboardShell({
           </div>
 
           {isViewPending ? (
-            <DashboardFeedSkeleton view={displayedView} />
+            <DashboardFeedSkeleton view={displayedView} categories={snapshot.categories} />
           ) : snapshot.feedItems.length === 0 ? (
             <Card className="rounded-[24px] border border-dashed border-black/10 bg-black/[0.015] p-6 text-sm text-slate-500 shadow-none">
               No items match the current tab and filters.

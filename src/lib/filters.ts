@@ -1,5 +1,5 @@
-import type { DashboardFilters, DashboardView, SourceType } from "@/lib/domain";
-import { dashboardViews, sourceTypes } from "@/lib/domain";
+import type { DashboardFilters, SourceType } from "@/lib/domain";
+import { sourceTypes } from "@/lib/domain";
 
 type SearchParamValue = string | string[] | undefined;
 
@@ -14,10 +14,7 @@ export function parseDashboardFilters(params: Record<string, SearchParamValue>):
   const savedOnly = takeFirst(params.saved) === "1";
 
   return {
-    view:
-      view && dashboardViews.includes(view as DashboardView)
-        ? (view as DashboardView)
-        : "all",
+    view: view || undefined,
     entity: takeFirst(params.entity) || undefined,
     tag: takeFirst(params.tag) || undefined,
     sourceType:
