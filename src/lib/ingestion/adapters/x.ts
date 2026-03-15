@@ -27,15 +27,6 @@ function toExcerpt(text: string) {
   return text.replace(/\s+/g, " ").trim();
 }
 
-function toTitle(text: string) {
-  const cleaned = toExcerpt(text);
-  if (cleaned.length <= 88) {
-    return cleaned;
-  }
-
-  return `${cleaned.slice(0, 85).trimEnd()}...`;
-}
-
 export function normalizeXProfileImageUrl(value?: string | null) {
   if (!value) {
     return null;
@@ -160,8 +151,8 @@ export function parseTwStalkerHtml(source: SourceRecord, html: string): SourceAd
       const mediaKind: "video" | "image" | null = poster ? "video" : image ? "image" : null;
 
       return {
-        title: toTitle(text || "Untitled post"),
-        excerpt: text,
+        title: text || "Untitled post",
+        excerpt: "",
         canonicalUrl,
         publishedAt: parseRelativeTimestamp(timestampText),
         contentType: "post" as const,
@@ -180,7 +171,7 @@ export function parseTwStalkerHtml(source: SourceRecord, html: string): SourceAd
       };
     })
     .get()
-    .filter((item) => item.excerpt.length > 0);
+    .filter((item) => item.title.length > 0 || item.excerpt.length > 0);
 
   return {
     adapter: "x",

@@ -128,6 +128,8 @@ describe("ingestion adapters", () => {
     expect(result.items[0]).toMatchObject({
       authorName: "Andy Hooke",
       authorAvatarUrl: "https://pbs.twimg.com/profile_images/1546442126543785984/rPOmKAIB_400x400.jpg",
+      title: "Another week of finding the best SaaS landing pages",
+      excerpt: "",
     });
   });
 

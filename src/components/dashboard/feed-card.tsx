@@ -21,6 +21,7 @@ import type { DashboardItem, SocialMetrics } from "@/lib/domain";
 import { setItemReadAction, toggleSavedAction } from "@/actions/item-state";
 import { FeedDetailModal } from "@/components/dashboard/feed-detail-modal";
 import { SourceAvatar } from "@/components/dashboard/source-avatar";
+import { resolveXDisplayText } from "@/components/dashboard/x-copy";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -169,6 +170,7 @@ export function FeedCard({ item }: { item: DashboardItem }) {
   const sourceName = getDisplaySourceName(item);
   const sourceHandle = getSourceHandle(item);
   const socialCounts = isX ? getResolvedSocialCounts(item) : null;
+  const xDisplayText = isX ? resolveXDisplayText(item) : null;
   const durationSeconds = parseDurationSeconds(item.mediaLabel);
   const isShortVideo = isYouTube && (item.canonicalUrl.includes("/shorts/") || (durationSeconds !== null && durationSeconds < 90));
   const isXVideo = item.sourceType === "x" && item.mediaKind === "video";
@@ -335,8 +337,10 @@ export function FeedCard({ item }: { item: DashboardItem }) {
                     </span>
                   </div>
                   <div className="mt-3 space-y-2">
-                    <p className="text-[15px] leading-7 text-slate-950">{item.title}</p>
-                    <p className="line-clamp-2 text-[14px] leading-6 text-slate-600">{item.excerpt}</p>
+                    <p className="text-[15px] leading-7 text-slate-950">{xDisplayText?.primaryText}</p>
+                    {xDisplayText?.secondaryText ? (
+                      <p className="line-clamp-2 text-[14px] leading-6 text-slate-600">{xDisplayText.secondaryText}</p>
+                    ) : null}
                   </div>
                 </div>
               </button>

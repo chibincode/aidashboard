@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useEffect } from "react";
 import {
   Bookmark,
-  CheckCheck,
   ExternalLink,
   Eye,
   Heart,
@@ -19,6 +18,7 @@ import {
 } from "lucide-react";
 import type { DashboardItem, SocialMetrics } from "@/lib/domain";
 import { SourceAvatar } from "@/components/dashboard/source-avatar";
+import { resolveXDisplayText } from "@/components/dashboard/x-copy";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn, compactNumber, formatRelativeTime } from "@/lib/utils";
@@ -204,6 +204,7 @@ export function FeedDetailModal({
   const Icon = contentTypeIcon[item.contentType];
   const meta = sourceTypeMeta[item.sourceType];
   const hasMedia = item.sourceType === "youtube" || Boolean(item.thumbnailUrl);
+  const xDisplayText = item.sourceType === "x" ? resolveXDisplayText(item) : null;
   const actionLabel =
     (item.sourceType === "website" || item.sourceType === "rss") &&
     item.tags.some((tag) => tag.slug === "website-inspiration")
@@ -270,11 +271,27 @@ export function FeedDetailModal({
               ) : null}
 
               <div className="min-w-0">
-                <h2 id={`feed-detail-title-${item.id}`} className="text-2xl font-semibold tracking-tight text-slate-950 md:text-[2rem]">
-                  {item.title}
-                </h2>
+                {item.sourceType === "x" ? (
+                  <>
+                    <p id={`feed-detail-title-${item.id}`} className="text-[17px] leading-8 text-slate-950 md:text-[1.2rem]">
+                      {xDisplayText?.primaryText}
+                    </p>
+                    {xDisplayText?.secondaryText ? (
+                      <p className="mt-4 text-[15px] leading-7 text-slate-600">{xDisplayText.secondaryText}</p>
+                    ) : null}
+                  </>
+                ) : (
+                  <>
+                    <h2
+                      id={`feed-detail-title-${item.id}`}
+                      className="text-2xl font-semibold tracking-tight text-slate-950 md:text-[2rem]"
+                    >
+                      {item.title}
+                    </h2>
 
-                <p className="mt-4 text-[15px] leading-7 text-slate-600">{item.excerpt}</p>
+                    <p className="mt-4 text-[15px] leading-7 text-slate-600">{item.excerpt}</p>
+                  </>
+                )}
 
                 {item.sourceType === "x" && socialCounts ? (
                   <div className="mt-5 flex flex-wrap items-center gap-5 border-y border-black/6 py-3 text-[13px] text-slate-500">
