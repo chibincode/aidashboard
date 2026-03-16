@@ -1,9 +1,8 @@
 "use client";
 
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Funnel } from "lucide-react";
 import type { DashboardFilters, EntityRecord, TagRecord } from "@/lib/domain";
-import { sourceTypes } from "@/lib/domain";
+import { sourceTypes, type SourceType } from "@/lib/domain";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Select } from "@/components/ui/select";
@@ -13,31 +12,21 @@ export function DashboardFiltersBar({
   tags,
   entities,
   layout = "toolbar",
+  onChange,
+  onClear,
 }: {
   filters: DashboardFilters;
   tags: TagRecord[];
   entities: EntityRecord[];
   layout?: "toolbar" | "sidebar";
+  onChange: (filters: DashboardFilters) => void;
+  onClear: () => void;
 }) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-
-  function updateParam(key: string, value?: string) {
-    const params = new URLSearchParams(searchParams.toString());
-
-    if (!value) {
-      params.delete(key);
-    } else {
-      params.set(key, value);
-    }
-
-    const query = params.toString();
-    router.push(query ? `${pathname}?${query}` : pathname);
-  }
-
   function toggleFlag(key: "saved" | "unread", enabled: boolean) {
-    updateParam(key, enabled ? "1" : undefined);
+    onChange({
+      ...filters,
+      [key === "saved" ? "savedOnly" : "unreadOnly"]: enabled,
+    });
   }
 
   return (
@@ -70,7 +59,7 @@ export function DashboardFiltersBar({
           >
             Saved only
           </Button>
-          <Button variant="ghost" size="sm" onClick={() => router.push(pathname)}>
+          <Button variant="ghost" size="sm" onClick={onClear}>
             Clear
           </Button>
         </div>
@@ -79,7 +68,12 @@ export function DashboardFiltersBar({
       <div className={layout === "sidebar" ? "mt-4 grid gap-3" : "mt-4 grid gap-3 lg:grid-cols-3"}>
         <Select
           value={filters.entity ?? ""}
-          onChange={(event) => updateParam("entity", event.target.value || undefined)}
+          onChange={(event) =>
+            onChange({
+              ...filters,
+              entity: event.target.value || undefined,
+            })
+          }
         >
           <option value="">All entities</option>
           {entities.map((entity) => (
@@ -88,7 +82,15 @@ export function DashboardFiltersBar({
             </option>
           ))}
         </Select>
-        <Select value={filters.tag ?? ""} onChange={(event) => updateParam("tag", event.target.value || undefined)}>
+        <Select
+          value={filters.tag ?? ""}
+          onChange={(event) =>
+            onChange({
+              ...filters,
+              tag: event.target.value || undefined,
+            })
+          }
+        >
           <option value="">All tags</option>
           {tags.map((tag) => (
             <option key={tag.id} value={tag.id}>
@@ -98,7 +100,12 @@ export function DashboardFiltersBar({
         </Select>
         <Select
           value={filters.sourceType ?? ""}
-          onChange={(event) => updateParam("sourceType", event.target.value || undefined)}
+          onChange={(event) =>
+            onChange({
+              ...filters,
+              sourceType: (event.target.value || undefined) as SourceType | undefined,
+            })
+          }
         >
           <option value="">All source types</option>
           {sourceTypes.map((sourceType) => (

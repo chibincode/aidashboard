@@ -245,6 +245,35 @@ describe("SourcesSettingsPanel", () => {
     expect(screen.getByText("Delete OpenAI YouTube?")).toBeInTheDocument();
   });
 
+  it("renders source URLs as external links in the list and delete modal", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <SourcesSettingsPanel
+        snapshot={buildSnapshot()}
+        canManageSources
+        isDemoMode={false}
+        createAction={noopSourceAction}
+        updateAction={noopSourceAction}
+        toggleAction={noopFormAction}
+        deleteAction={noopFormAction}
+      />,
+    );
+
+    const listLink = screen.getByRole("link", { name: "https://www.youtube.com/@OpenAI" });
+    expect(listLink).toHaveAttribute("href", "https://www.youtube.com/@OpenAI");
+    expect(listLink).toHaveAttribute("target", "_blank");
+    expect(listLink).toHaveAttribute("rel", "noreferrer");
+
+    await user.click(screen.getAllByRole("button", { name: "Delete" })[0]);
+
+    const dialog = screen.getByRole("dialog", { name: "Delete source" });
+    const dialogLink = within(dialog).getByRole("link", { name: "https://www.youtube.com/@OpenAI" });
+    expect(dialogLink).toHaveAttribute("href", "https://www.youtube.com/@OpenAI");
+    expect(dialogLink).toHaveAttribute("target", "_blank");
+    expect(dialogLink).toHaveAttribute("rel", "noreferrer");
+  });
+
   it("closes the delete modal immediately, removes the source locally, and refreshes in the background", async () => {
     const user = userEvent.setup();
     const deleteAction = vi.fn(async () => {});
@@ -535,7 +564,7 @@ describe("SourcesSettingsPanel", () => {
     const createAction = vi.fn(async () =>
       createSourceMutationState(createEmptySourceFormValues(), {
         status: "success",
-        message: "Source created. Background validation started.",
+        message: "Source created. Initial sync completed.",
       }),
     );
 
@@ -561,7 +590,7 @@ describe("SourcesSettingsPanel", () => {
       expect(screen.queryByRole("dialog", { name: "Add source" })).not.toBeInTheDocument();
     });
 
-    expect(screen.getByText("Source created. Background validation started.")).toBeInTheDocument();
+    expect(screen.getByText("Source created. Initial sync completed.")).toBeInTheDocument();
     expect(routerRefresh).toHaveBeenCalledTimes(1);
   });
 });

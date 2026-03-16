@@ -388,6 +388,29 @@ export async function createEntityRecord(input: {
   });
 }
 
+export async function updateEntityRecord(input: {
+  id: string;
+  name: string;
+  kind: "topic" | "competitor" | "product";
+  description: string;
+  color: string;
+}) {
+  const workspaceId = await assertWorkspace();
+  const db = requireDb();
+
+  await db
+    .update(entities)
+    .set({
+      name: input.name,
+      slug: slugify(input.name),
+      kind: input.kind as "topic" | "competitor" | "product",
+      description: input.description,
+      color: input.color,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(entities.id, input.id), eq(entities.workspaceId, workspaceId)));
+}
+
 export async function deleteEntityRecord(id: string) {
   const workspaceId = await assertWorkspace();
   const db = requireDb();
@@ -411,6 +434,29 @@ export async function createTagRecord(input: {
     parentId: input.parentId,
     isActive: input.isActive,
   });
+}
+
+export async function updateTagRecord(input: {
+  id: string;
+  name: string;
+  color: string;
+  parentId: string | null;
+  isActive: boolean;
+}) {
+  const workspaceId = await assertWorkspace();
+  const db = requireDb();
+
+  await db
+    .update(tags)
+    .set({
+      name: input.name,
+      slug: slugify(input.name),
+      color: input.color,
+      parentId: input.parentId,
+      isActive: input.isActive,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(tags.id, input.id), eq(tags.workspaceId, workspaceId)));
 }
 
 export async function toggleTagRecord(id: string, isActive: boolean) {

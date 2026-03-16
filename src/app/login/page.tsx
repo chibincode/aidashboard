@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Mail, ShieldCheck } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
-import { Button } from "@/components/ui/button";
+import { Button, FormSubmitButton } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { appConfig } from "@/lib/env";
@@ -85,7 +85,9 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
                 Use your allowlisted owner email to open the database-backed workspace on any device.
               </p>
               <Input type="email" name="email" placeholder="you@company.com" required />
-              <Button type="submit">Send login link</Button>
+              <FormSubmitButton type="submit" loadingLabel="Sending login link...">
+                Send login link
+              </FormSubmitButton>
             </form>
           ) : (
             <div className="space-y-4">

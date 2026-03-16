@@ -155,6 +155,7 @@ export function FeedCard({ item }: { item: DashboardItem }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [detailOpen, setDetailOpen] = useState(false);
+  const [pendingAction, setPendingAction] = useState<"read" | "save" | null>(null);
   const [optimistic, updateOptimistic] = useOptimistic(
     { isRead: item.isRead, isSaved: item.isSaved },
     (state, patch: Partial<{ isRead: boolean; isSaved: boolean }>) => ({
@@ -183,17 +184,27 @@ export function FeedCard({ item }: { item: DashboardItem }) {
 
   function setReadValue(nextValue: boolean) {
     startTransition(async () => {
-      updateOptimistic({ isRead: nextValue });
-      await setItemReadAction(item.id, nextValue);
-      router.refresh();
+      setPendingAction("read");
+      try {
+        updateOptimistic({ isRead: nextValue });
+        await setItemReadAction(item.id, nextValue);
+        router.refresh();
+      } finally {
+        setPendingAction(null);
+      }
     });
   }
 
   function setSavedValue(nextValue: boolean) {
     startTransition(async () => {
-      updateOptimistic({ isSaved: nextValue });
-      await toggleSavedAction(item.id, nextValue);
-      router.refresh();
+      setPendingAction("save");
+      try {
+        updateOptimistic({ isSaved: nextValue });
+        await toggleSavedAction(item.id, nextValue);
+        router.refresh();
+      } finally {
+        setPendingAction(null);
+      }
     });
   }
 
@@ -204,6 +215,8 @@ export function FeedCard({ item }: { item: DashboardItem }) {
           variant={optimistic.isRead ? "secondary" : "primary"}
           size="sm"
           disabled={isPending}
+          loading={pendingAction === "read"}
+          loadingLabel={optimistic.isRead ? "Marking unread..." : "Marking read..."}
           onClick={() => setReadValue(!optimistic.isRead)}
         >
           <CheckCheck className="size-3.5" />
@@ -213,6 +226,8 @@ export function FeedCard({ item }: { item: DashboardItem }) {
           variant={optimistic.isSaved ? "primary" : "secondary"}
           size="sm"
           disabled={isPending}
+          loading={pendingAction === "save"}
+          loadingLabel={optimistic.isSaved ? "Unsaving..." : "Saving..."}
           onClick={() => setSavedValue(!optimistic.isSaved)}
         >
           <Bookmark className="size-3.5" />

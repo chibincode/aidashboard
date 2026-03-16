@@ -1,4 +1,8 @@
+"use client";
+
 import * as React from "react";
+import { useFormStatus } from "react-dom";
+import { LoaderCircle } from "lucide-react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
@@ -26,8 +30,40 @@ const buttonVariants = cva(
 
 export interface ButtonProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
-    VariantProps<typeof buttonVariants> {}
+    VariantProps<typeof buttonVariants> {
+  loading?: boolean;
+  loadingLabel?: React.ReactNode;
+}
 
-export function Button({ className, variant, size, ...props }: ButtonProps) {
-  return <button className={cn(buttonVariants({ variant, size, className }))} {...props} />;
+function Spinner({ className }: { className?: string }) {
+  return <LoaderCircle aria-hidden="true" className={cn("size-4 animate-spin", className)} />;
+}
+
+export function Button({
+  children,
+  className,
+  disabled,
+  loading = false,
+  loadingLabel,
+  variant,
+  size,
+  ...props
+}: ButtonProps) {
+  return (
+    <button
+      className={cn(buttonVariants({ variant, size, className }), loading && "cursor-wait opacity-100")}
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
+      {...props}
+    >
+      {loading ? <Spinner /> : null}
+      {loading ? (loadingLabel ?? children) : children}
+    </button>
+  );
+}
+
+export function FormSubmitButton(props: ButtonProps) {
+  const { pending } = useFormStatus();
+
+  return <Button {...props} loading={props.loading || pending} />;
 }

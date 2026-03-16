@@ -2,7 +2,6 @@
 
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
-import { inngest } from "@/inngest/client";
 import {
   createCategoryRecord,
   createEntityRecord,
@@ -19,11 +18,14 @@ import {
   toggleRuleRecord,
   toggleSourceRecord,
   toggleTagRecord,
+  updateEntityRecord,
   updateCategoryRecord,
   updateSourceRecord,
+  updateTagRecord,
 } from "@/lib/repositories/app-repository";
 import { appConfig } from "@/lib/env";
 import { requireOwnerActionSession } from "@/lib/auth-guards";
+import { syncSourceById } from "@/lib/ingestion/sync";
 import { normalizeSourceInput, SourceValidationError } from "@/lib/source-normalization";
 import {
   createCategoryMutationState,
@@ -101,26 +103,36 @@ async function setSettingsToastMessage(message: string) {
   });
 }
 
-async function persistAndScheduleSourceValidation(
+async function persistAndValidateSource(
   sourceId: string,
   actionLabel: "created" | "updated",
 ) {
-  const successMessage = `Source ${actionLabel}. Background validation started.`;
-
   try {
-    await inngest.send({
-      name: "signal/source.sync",
-      data: { sourceId },
-    });
+    const result = await syncSourceById(sourceId);
+    if (result.skipped) {
+      return {
+        status: "success" as const,
+        message: `Source ${actionLabel}.`,
+      };
+    }
+
+    const warnings = result.warnings ?? [];
+
+    if (warnings.length > 0) {
+      return {
+        status: "success" as const,
+        message: `Source ${actionLabel}. Initial sync completed with warnings. Check source status for details.`,
+      };
+    }
 
     return {
       status: "success" as const,
-      message: successMessage,
+      message: `Source ${actionLabel}. Initial sync completed.`,
     };
-  } catch (error) {
+  } catch {
     return {
       status: "success" as const,
-      message: "Source saved, but background validation could not be scheduled.",
+      message: `Source ${actionLabel}, but the initial sync failed. Check source status for details.`,
     };
   }
 }
@@ -169,7 +181,7 @@ export async function createSourceAction(
 
     const validation = sourceId
       ? appConfig.hasDatabase
-        ? await persistAndScheduleSourceValidation(sourceId, "created")
+        ? await persistAndValidateSource(sourceId, "created")
         : {
             status: "success" as const,
             message: "Source created. Demo-mode changes are stored in this browser.",
@@ -264,7 +276,7 @@ export async function updateSourceAction(
     });
 
     const validation = appConfig.hasDatabase
-      ? await persistAndScheduleSourceValidation(sourceId, "updated")
+      ? await persistAndValidateSource(sourceId, "updated")
       : {
           status: "success" as const,
           message: "Source updated. Demo-mode changes are stored in this browser.",
@@ -310,6 +322,20 @@ export async function deleteSourceAction(formData: FormData) {
 export async function createEntityAction(formData: FormData) {
   await requireOwnerActionSession();
   await createEntityRecord({
+    name: String(formData.get("name") ?? ""),
+    kind: String(formData.get("kind") ?? "topic") as "topic" | "competitor" | "product",
+    description: String(formData.get("description") ?? ""),
+    color: String(formData.get("color") ?? "#197d71"),
+  });
+
+  revalidatePath("/admin/entities");
+  revalidatePath("/");
+}
+
+export async function updateEntityAction(formData: FormData) {
+  await requireOwnerActionSession();
+  await updateEntityRecord({
+    id: String(formData.get("id") ?? ""),
     name: String(formData.get("name") ?? ""),
     kind: String(formData.get("kind") ?? "topic") as "topic" | "competitor" | "product",
     description: String(formData.get("description") ?? ""),
@@ -459,6 +485,20 @@ export async function deleteCategoryAction(formData: FormData) {
 export async function createTagAction(formData: FormData) {
   await requireOwnerActionSession();
   await createTagRecord({
+    name: String(formData.get("name") ?? ""),
+    color: String(formData.get("color") ?? "#197d71"),
+    parentId: String(formData.get("parentId") ?? "") || null,
+    isActive: formData.get("isActive") === "on",
+  });
+
+  revalidatePath("/admin/tags");
+  revalidatePath("/");
+}
+
+export async function updateTagAction(formData: FormData) {
+  await requireOwnerActionSession();
+  await updateTagRecord({
+    id: String(formData.get("id") ?? ""),
     name: String(formData.get("name") ?? ""),
     color: String(formData.get("color") ?? "#197d71"),
     parentId: String(formData.get("parentId") ?? "") || null,

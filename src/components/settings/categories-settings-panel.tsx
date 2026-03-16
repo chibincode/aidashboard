@@ -107,7 +107,13 @@ function CategoryEditorForm({
 
       <label className="grid gap-1.5">
         <FieldLabel>Name</FieldLabel>
-        <Input name="name" placeholder="Competitor Watch" defaultValue={resolvedValues.name} disabled={!canManageCategories} required />
+        <Input
+          name="name"
+          placeholder="Competitor Watch"
+          defaultValue={resolvedValues.name}
+          disabled={!canManageCategories || isPending}
+          required
+        />
         {state.fieldErrors.name ? <p className="text-xs text-[#991b1b]">{state.fieldErrors.name}</p> : null}
       </label>
 
@@ -117,14 +123,14 @@ function CategoryEditorForm({
           name="description"
           placeholder="Signals across the entities and themes you care about."
           defaultValue={resolvedValues.description}
-          disabled={!canManageCategories}
+          disabled={!canManageCategories || isPending}
         />
       </label>
 
       <div className="grid gap-4 md:grid-cols-2">
         <label className="grid gap-1.5">
           <FieldLabel>Tone</FieldLabel>
-          <Select name="tone" defaultValue={resolvedValues.tone} disabled={!canManageCategories}>
+          <Select name="tone" defaultValue={resolvedValues.tone} disabled={!canManageCategories || isPending}>
             {toneOptions.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
@@ -135,7 +141,7 @@ function CategoryEditorForm({
 
         <label className="grid gap-1.5">
           <FieldLabel>Order</FieldLabel>
-          <Input name="position" type="number" defaultValue={resolvedValues.position} disabled={!canManageCategories} />
+          <Input name="position" type="number" defaultValue={resolvedValues.position} disabled={!canManageCategories || isPending} />
           {state.fieldErrors.position ? <p className="text-xs text-[#991b1b]">{state.fieldErrors.position}</p> : null}
         </label>
       </div>
@@ -150,7 +156,7 @@ function CategoryEditorForm({
                 name="tagIds"
                 value={tag.id}
                 defaultChecked={resolvedValues.tagIds.includes(tag.id)}
-                disabled={!canManageCategories}
+                disabled={!canManageCategories || isPending}
               />
               {tag.name}
             </label>
@@ -168,7 +174,7 @@ function CategoryEditorForm({
                 name="entityIds"
                 value={entity.id}
                 defaultChecked={resolvedValues.entityIds.includes(entity.id)}
-                disabled={!canManageCategories}
+                disabled={!canManageCategories || isPending}
               />
               {entity.name}
             </label>
@@ -186,7 +192,7 @@ function CategoryEditorForm({
                 name="entityKinds"
                 value={kind}
                 defaultChecked={resolvedValues.entityKinds.includes(kind)}
-                disabled={!canManageCategories}
+                disabled={!canManageCategories || isPending}
               />
               {toSentenceCase(kind)}
             </label>
@@ -196,18 +202,23 @@ function CategoryEditorForm({
       </div>
 
       <label className="flex items-center gap-2 text-sm text-slate-600">
-        <input type="checkbox" name="isActive" defaultChecked={resolvedValues.isActive} disabled={!canManageCategories} />
+        <input
+          type="checkbox"
+          name="isActive"
+          defaultChecked={resolvedValues.isActive}
+          disabled={!canManageCategories || isPending}
+        />
         Show on homepage
       </label>
 
       <FormStatusMessage state={state} />
 
       <div className="flex flex-wrap gap-2">
-        <Button type="submit" disabled={!canManageCategories || isPending}>
-          {isPending ? pendingLabel : submitLabel}
+        <Button type="submit" disabled={!canManageCategories} loading={isPending} loadingLabel={pendingLabel}>
+          {submitLabel}
         </Button>
         {onCancel ? (
-          <Button type="button" variant="ghost" onClick={onCancel}>
+          <Button type="button" variant="ghost" onClick={onCancel} disabled={isPending}>
             Cancel
           </Button>
         ) : null}
@@ -263,8 +274,8 @@ function DeleteCategoryForm({
         <Button type="button" variant="ghost" onClick={onClose} disabled={isPending}>
           Cancel
         </Button>
-        <Button type="submit" variant="danger" disabled={!canManageCategories || isPending}>
-          {isPending ? "Deleting..." : "Delete category"}
+        <Button type="submit" variant="danger" disabled={!canManageCategories} loading={isPending} loadingLabel="Deleting...">
+          Delete category
         </Button>
       </form>
     </div>
@@ -414,12 +425,16 @@ function CategoryCard({
   onDelete: () => void;
   toggleAction: (formData: FormData) => Promise<void>;
 }) {
+  const router = useRouter();
+  const [pendingAction, setPendingAction] = useState<"toggle" | null>(null);
+  const [isPending, startTransition] = useTransition();
   const matchedTags = category.tagIds
     .map((tagId) => snapshot.tags.find((tag) => tag.id === tagId)?.name)
     .filter((name): name is string => Boolean(name));
   const matchedEntities = category.entityIds
     .map((entityId) => snapshot.entities.find((entity) => entity.id === entityId)?.name)
     .filter((name): name is string => Boolean(name));
+  const rowDisabled = !canManageCategories || isPending;
 
   return (
     <Card className="rounded-[24px] border-black/8 bg-white p-5 shadow-[0_12px_34px_-30px_rgba(12,23,32,0.3)]">
@@ -452,17 +467,38 @@ function CategoryCard({
         </div>
 
         <div className="flex shrink-0 flex-wrap gap-2">
-          <Button type="button" variant="ghost" onClick={onEdit} disabled={!canManageCategories}>
+          <Button type="button" variant="ghost" onClick={onEdit} disabled={rowDisabled}>
             Edit
           </Button>
-          <form action={toggleAction}>
+          <form
+            action={toggleAction}
+            onSubmit={(event) => {
+              event.preventDefault();
+              const formData = new FormData(event.currentTarget);
+              setPendingAction("toggle");
+              startTransition(async () => {
+                try {
+                  await toggleAction(formData);
+                  router.refresh();
+                } finally {
+                  setPendingAction(null);
+                }
+              });
+            }}
+          >
             <input type="hidden" name="id" value={category.id} />
             <input type="hidden" name="isActive" value={String(!category.isActive)} />
-            <Button type="submit" variant="secondary" disabled={!canManageCategories}>
+            <Button
+              type="submit"
+              variant="secondary"
+              disabled={rowDisabled}
+              loading={pendingAction === "toggle"}
+              loadingLabel={category.isActive ? "Pausing..." : "Enabling..."}
+            >
               {category.isActive ? "Pause" : "Enable"}
             </Button>
           </form>
-          <Button type="button" variant="danger" onClick={onDelete} disabled={!canManageCategories}>
+          <Button type="button" variant="danger" onClick={onDelete} disabled={rowDisabled}>
             Delete
           </Button>
         </div>

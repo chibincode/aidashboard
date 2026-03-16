@@ -11,10 +11,12 @@ const {
   deleteSourceRecord,
   deleteTagRecord,
   toggleCategoryRecord,
+  updateEntityRecord,
   updateSourceRecord,
   updateCategoryRecord,
+  updateTagRecord,
   getSourceRecordById,
-  inngestSend,
+  syncSourceById,
   revalidatePath,
   cookieStore,
   requireOwnerActionSession,
@@ -27,10 +29,12 @@ const {
   deleteSourceRecord: vi.fn(),
   deleteTagRecord: vi.fn(),
   toggleCategoryRecord: vi.fn(),
+  updateEntityRecord: vi.fn(),
   updateSourceRecord: vi.fn(),
   updateCategoryRecord: vi.fn(),
+  updateTagRecord: vi.fn(),
   getSourceRecordById: vi.fn(),
-  inngestSend: vi.fn(),
+  syncSourceById: vi.fn(),
   revalidatePath: vi.fn(),
   cookieStore: {
     set: vi.fn(),
@@ -54,10 +58,8 @@ vi.mock("next/headers", () => ({
   cookies: vi.fn(async () => cookieStore),
 }));
 
-vi.mock("@/inngest/client", () => ({
-  inngest: {
-    send: inngestSend,
-  },
+vi.mock("@/lib/ingestion/sync", () => ({
+  syncSourceById,
 }));
 
 vi.mock("@/lib/auth-guards", () => ({
@@ -80,17 +82,26 @@ vi.mock("@/lib/repositories/app-repository", () => ({
   toggleRuleRecord: vi.fn(),
   toggleSourceRecord: vi.fn(),
   toggleTagRecord: vi.fn(),
+  updateEntityRecord,
   updateCategoryRecord,
   updateSourceRecord,
+  updateTagRecord,
 }));
 
 describe("admin source actions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    inngestSend.mockResolvedValue({ ids: ["evt_1"] });
+    syncSourceById.mockResolvedValue({
+      sourceId: "source_default",
+      skipped: false,
+      fetchedCount: 3,
+      createdCount: 3,
+      dedupedCount: 0,
+      warnings: [],
+    });
   });
 
-  it("stores normalized YouTube config on create and schedules background validation", async () => {
+  it("stores normalized YouTube config on create and runs the initial sync", async () => {
     createSourceRecord.mockResolvedValue("source_openai");
 
     const { createSourceAction } = await import("@/actions/admin");
@@ -117,12 +128,49 @@ describe("admin source actions", () => {
       }),
     );
     expect(requireOwnerActionSession).toHaveBeenCalled();
-    expect(inngestSend).toHaveBeenCalledWith({
-      name: "signal/source.sync",
-      data: { sourceId: "source_openai" },
-    });
+    expect(syncSourceById).toHaveBeenCalledWith("source_openai");
     expect(result.status).toBe("success");
-    expect(result.message).toBe("Source created. Background validation started.");
+    expect(result.message).toBe("Source created. Initial sync completed.");
+    expect(cookieStore.set).toHaveBeenCalledWith(
+      "settings-toast",
+      expect.any(String),
+      expect.objectContaining({
+        path: "/",
+        maxAge: 60,
+        sameSite: "lax",
+      }),
+    );
+    expect(revalidatePath).not.toHaveBeenCalledWith("/admin/sources");
+    expect(revalidatePath).not.toHaveBeenCalledWith("/");
+  });
+
+  it("returns a warning message when the initial sync finishes with warnings", async () => {
+    createSourceRecord.mockResolvedValue("source_openai");
+    syncSourceById.mockResolvedValueOnce({
+      sourceId: "source_openai",
+      skipped: false,
+      fetchedCount: 0,
+      createdCount: 0,
+      dedupedCount: 0,
+      warnings: ["Missing feed metadata"],
+    });
+
+    const { createSourceAction } = await import("@/actions/admin");
+    const formData = new FormData();
+    formData.set("name", "OpenAI YouTube");
+    formData.set("type", "youtube");
+    formData.set("url", "https://www.youtube.com/channel/UCXZCJLdBC09xxGZ6gcdrc6A");
+
+    const result = await createSourceAction(
+      createSourceMutationState(createEmptySourceFormValues()),
+      formData,
+    );
+
+    expect(syncSourceById).toHaveBeenCalledWith("source_openai");
+    expect(result.status).toBe("success");
+    expect(result.message).toBe(
+      "Source created. Initial sync completed with warnings. Check source status for details.",
+    );
     expect(cookieStore.set).toHaveBeenCalledWith(
       "settings-toast",
       expect.any(String),
@@ -153,7 +201,7 @@ describe("admin source actions", () => {
     expect(result.fieldErrors.url).toContain("/channel/");
   });
 
-  it("updates sources with rewritten YouTube config and schedules background validation", async () => {
+  it("updates sources with rewritten YouTube config and runs the initial sync", async () => {
     getSourceRecordById.mockResolvedValue({
       id: "source_openai",
       workspaceId: "ws_1",
@@ -199,12 +247,9 @@ describe("admin source actions", () => {
         }),
       }),
     );
-    expect(inngestSend).toHaveBeenCalledWith({
-      name: "signal/source.sync",
-      data: { sourceId: "source_openai" },
-    });
+    expect(syncSourceById).toHaveBeenCalledWith("source_openai");
     expect(result.status).toBe("success");
-    expect(result.message).toBe("Source updated. Background validation started.");
+    expect(result.message).toBe("Source updated. Initial sync completed.");
     expect(revalidatePath).not.toHaveBeenCalledWith("/admin/sources");
     expect(revalidatePath).not.toHaveBeenCalledWith("/");
   });
@@ -239,7 +284,7 @@ describe("admin source actions", () => {
     expect(result.status).toBe("success");
   });
 
-  it("stores normalized X config on create and schedules background validation", async () => {
+  it("stores normalized X config on create and runs the initial sync", async () => {
     createSourceRecord.mockResolvedValue("source_riyvir");
 
     const { createSourceAction } = await import("@/actions/admin");
@@ -268,16 +313,13 @@ describe("admin source actions", () => {
         },
       }),
     );
-    expect(inngestSend).toHaveBeenCalledWith({
-      name: "signal/source.sync",
-      data: { sourceId: "source_riyvir" },
-    });
+    expect(syncSourceById).toHaveBeenCalledWith("source_riyvir");
     expect(result.status).toBe("success");
   });
 
-  it("returns success when scheduling background validation fails after create", async () => {
+  it("returns success when the initial sync fails after create", async () => {
     createSourceRecord.mockResolvedValue("source_framer");
-    inngestSend.mockRejectedValueOnce(new Error("Queue unavailable"));
+    syncSourceById.mockRejectedValueOnce(new Error("Queue unavailable"));
 
     const { createSourceAction } = await import("@/actions/admin");
     const formData = new FormData();
@@ -294,12 +336,9 @@ describe("admin source actions", () => {
     );
 
     expect(createSourceRecord).toHaveBeenCalled();
-    expect(inngestSend).toHaveBeenCalledWith({
-      name: "signal/source.sync",
-      data: { sourceId: "source_framer" },
-    });
+    expect(syncSourceById).toHaveBeenCalledWith("source_framer");
     expect(result.status).toBe("success");
-    expect(result.message).toBe("Source saved, but background validation could not be scheduled.");
+    expect(result.message).toBe("Source created, but the initial sync failed. Check source status for details.");
     expect(cookieStore.set).toHaveBeenCalled();
     expect(revalidatePath).not.toHaveBeenCalledWith("/admin/sources");
     expect(revalidatePath).not.toHaveBeenCalledWith("/");
@@ -354,6 +393,43 @@ describe("admin source actions", () => {
     expect(revalidatePath).toHaveBeenCalledWith("/admin/entities");
     expect(revalidatePath).toHaveBeenCalledWith("/admin/tags");
     expect(revalidatePath).toHaveBeenCalledWith("/admin/rules");
+  });
+
+  it("updates entities and tags and revalidates the matching settings routes", async () => {
+    const { updateEntityAction, updateTagAction } = await import("@/actions/admin");
+
+    const entityFormData = new FormData();
+    entityFormData.set("id", "entity_1");
+    entityFormData.set("name", "AI UX Signals");
+    entityFormData.set("kind", "topic");
+    entityFormData.set("description", "Interaction patterns and workflows.");
+    entityFormData.set("color", "#197d71");
+    await updateEntityAction(entityFormData);
+
+    const tagFormData = new FormData();
+    tagFormData.set("id", "tag_1");
+    tagFormData.set("name", "AI UX/UI");
+    tagFormData.set("parentId", "tag_parent");
+    tagFormData.set("color", "#0f766e");
+    tagFormData.set("isActive", "on");
+    await updateTagAction(tagFormData);
+
+    expect(updateEntityRecord).toHaveBeenCalledWith({
+      id: "entity_1",
+      name: "AI UX Signals",
+      kind: "topic",
+      description: "Interaction patterns and workflows.",
+      color: "#197d71",
+    });
+    expect(updateTagRecord).toHaveBeenCalledWith({
+      id: "tag_1",
+      name: "AI UX/UI",
+      parentId: "tag_parent",
+      color: "#0f766e",
+      isActive: true,
+    });
+    expect(revalidatePath).toHaveBeenCalledWith("/admin/entities");
+    expect(revalidatePath).toHaveBeenCalledWith("/admin/tags");
   });
 
   it("blocks settings mutations when the owner session is missing", async () => {
