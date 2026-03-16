@@ -1,5 +1,6 @@
 import { AppShell } from "@/components/app-shell";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
+import { DueSourceRefreshBeacon } from "@/components/dashboard/due-source-refresh-beacon";
 import { LastVisitBeacon } from "@/components/dashboard/last-visit-beacon";
 import { Button } from "@/components/ui/button";
 import {
@@ -48,6 +49,7 @@ export default async function Home({ searchParams }: PageProps) {
       }
     >
       <LastVisitBeacon />
+      {hasSettingsAccess ? <DueSourceRefreshBeacon /> : null}
       <DashboardShell snapshot={snapshot} filters={filters} />
     </AppShell>
   );

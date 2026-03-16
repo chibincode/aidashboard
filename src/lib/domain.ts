@@ -254,9 +254,11 @@ export interface AdminSnapshot {
 }
 
 export interface DashboardSnapshot {
+  renderId: string;
   workspace: WorkspaceRecord;
   viewer: ViewerContext;
   activeView: DashboardView;
+  allItems: DashboardItem[];
   feedItems: DashboardItem[];
   sections: DashboardSection[];
   categories: CategoryRecord[];

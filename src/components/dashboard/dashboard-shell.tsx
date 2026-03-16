@@ -1,13 +1,15 @@
 "use client";
 
-import { useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { DashboardFiltersBar } from "@/components/dashboard/filters-bar";
 import { FeedCard } from "@/components/dashboard/feed-card";
 import { DashboardViewTabs } from "@/components/dashboard/view-tabs";
 import { getDashboardViewLabel } from "@/components/dashboard/view-meta";
 import { Card } from "@/components/ui/card";
+import { projectDashboardState } from "@/lib/dashboard";
+import { DASHBOARD_LOCATION_CHANGE_EVENT, DASHBOARD_REFRESH_START_EVENT } from "@/lib/dashboard-events";
 import type { DashboardFilters, DashboardSnapshot, DashboardView } from "@/lib/domain";
+import { parseDashboardFiltersFromSearchParams, serializeDashboardFilters } from "@/lib/filters";
 
 function DashboardFeedSkeleton({
   view,
@@ -58,42 +60,98 @@ export function DashboardShell({
   snapshot: DashboardSnapshot;
   filters: DashboardFilters;
 }) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const [pendingView, setPendingView] = useState<DashboardView | null>(null);
+  const [refreshingRenderId, setRefreshingRenderId] = useState<string | null>(null);
+  const initialSearch = useMemo(() => {
+    const query = serializeDashboardFilters(filters);
+    return query ? `?${query}` : "";
+  }, [filters]);
+  const currentSearch = useSyncExternalStore(
+    (onStoreChange) => {
+      function handleLocationChange() {
+        onStoreChange();
+      }
 
-  const resolvedPendingView = pendingView === snapshot.activeView ? null : pendingView;
-  const isViewPending = resolvedPendingView !== null;
-  const displayedView = resolvedPendingView ?? snapshot.activeView;
-  const activeLabel = getDashboardViewLabel(displayedView, snapshot.categories);
+      window.addEventListener("popstate", handleLocationChange);
+      window.addEventListener(DASHBOARD_LOCATION_CHANGE_EVENT, handleLocationChange);
 
-  function setView(view: DashboardView) {
-    if (view === snapshot.activeView && resolvedPendingView === null) {
+      return () => {
+        window.removeEventListener("popstate", handleLocationChange);
+        window.removeEventListener(DASHBOARD_LOCATION_CHANGE_EVENT, handleLocationChange);
+      };
+    },
+    () => window.location.search,
+    () => initialSearch,
+  );
+  const currentFilters = useMemo(
+    () => parseDashboardFiltersFromSearchParams(new URLSearchParams(currentSearch)),
+    [currentSearch],
+  );
+
+  const projected = useMemo(
+    () =>
+      projectDashboardState({
+        allItems: snapshot.allItems,
+        categories: snapshot.categories,
+        filters: currentFilters,
+      }),
+    [currentFilters, snapshot.allItems, snapshot.categories],
+  );
+  const activeLabel = getDashboardViewLabel(projected.activeView, projected.categories);
+  const isBackgroundRefreshing = refreshingRenderId === snapshot.renderId;
+
+  function syncUrl(nextFilters: DashboardFilters, mode: "push" | "replace" = "push") {
+    const query = serializeDashboardFilters(nextFilters);
+    const nextUrl = query ? `${window.location.pathname}?${query}` : window.location.pathname;
+    const currentUrl = `${window.location.pathname}${window.location.search}`;
+
+    if (nextUrl === currentUrl) {
       return;
     }
 
-    const params = new URLSearchParams(searchParams.toString());
+    window.history[mode === "replace" ? "replaceState" : "pushState"](null, "", nextUrl);
+    window.dispatchEvent(new Event(DASHBOARD_LOCATION_CHANGE_EVENT));
+  }
 
-    if (view === "all") {
-      params.delete("view");
-    } else {
-      params.set("view", view);
+  function applyFilters(nextFilters: DashboardFilters, mode: "push" | "replace" = "push") {
+    syncUrl(nextFilters, mode);
+  }
+
+  function setView(view: DashboardView) {
+    if (view === projected.activeView) {
+      return;
     }
 
-    const query = params.toString();
-    const nextUrl = query ? `${pathname}?${query}` : pathname;
-
-    setPendingView(view === snapshot.activeView ? null : view);
-    router.push(nextUrl);
+    applyFilters({
+      ...currentFilters,
+      view: view === "all" ? undefined : view,
+    });
   }
+
+  useEffect(() => {
+    function handleRefreshStart() {
+      setRefreshingRenderId(snapshot.renderId);
+    }
+
+    window.addEventListener(DASHBOARD_REFRESH_START_EVENT, handleRefreshStart);
+
+    return () => {
+      window.removeEventListener(DASHBOARD_REFRESH_START_EVENT, handleRefreshStart);
+    };
+  }, [snapshot.renderId]);
 
   return (
     <section className="grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-10">
       <aside className="lg:sticky lg:top-16 lg:self-start">
-        <DashboardViewTabs activeView={displayedView} categories={snapshot.categories} layout="sidebar" onChange={setView} />
+        <DashboardViewTabs activeView={projected.activeView} categories={projected.categories} layout="sidebar" onChange={setView} />
         <div className="mt-4">
-          <DashboardFiltersBar filters={filters} tags={snapshot.tags} entities={snapshot.entities} layout="sidebar" />
+          <DashboardFiltersBar
+            filters={currentFilters}
+            tags={snapshot.tags}
+            entities={snapshot.entities}
+            layout="sidebar"
+            onChange={(nextFilters) => applyFilters(nextFilters)}
+            onClear={() => applyFilters({}, "push")}
+          />
         </div>
       </aside>
 
@@ -103,24 +161,24 @@ export function DashboardShell({
             <h2 className="font-display text-xl font-semibold tracking-tight text-slate-950 md:text-[1.55rem]">
               {activeLabel}
             </h2>
-            {isViewPending ? (
+            {isBackgroundRefreshing ? (
               <div className="h-4 w-[4.5rem] animate-pulse rounded-full bg-slate-100" aria-hidden="true" />
             ) : (
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                {snapshot.feedItems.length} items
+                {projected.feedItems.length} items
               </p>
             )}
           </div>
 
-          {isViewPending ? (
-            <DashboardFeedSkeleton view={displayedView} categories={snapshot.categories} />
-          ) : snapshot.feedItems.length === 0 ? (
+          {isBackgroundRefreshing ? (
+            <DashboardFeedSkeleton view={projected.activeView} categories={projected.categories} />
+          ) : projected.feedItems.length === 0 ? (
             <Card className="rounded-[24px] border border-dashed border-black/10 bg-black/[0.015] p-6 text-sm text-slate-500 shadow-none">
               No items match the current tab and filters.
             </Card>
           ) : (
             <div className="grid gap-4">
-              {snapshot.feedItems.map((item) => (
+              {projected.feedItems.map((item) => (
                 <FeedCard key={item.id} item={item} />
               ))}
             </div>

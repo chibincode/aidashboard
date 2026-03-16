@@ -203,6 +203,24 @@ function getFeedItemsForView(view: DashboardView, sections: DashboardSection[], 
   return sections.find((section) => section.id === view)?.items ?? [];
 }
 
+export function projectDashboardState(args: {
+  allItems: DashboardItem[];
+  categories: CategoryRecord[];
+  filters: DashboardFilters;
+}) {
+  const filtered = filterDashboardItems(args.allItems, args.filters);
+  const activeCategories = sortCategories(args.categories.filter((category) => category.isActive));
+  const sections = buildSections(filtered, activeCategories);
+  const activeView = resolveActiveView(args.filters.view, activeCategories);
+
+  return {
+    activeView,
+    categories: activeCategories,
+    sections,
+    feedItems: getFeedItemsForView(activeView, sections, filtered),
+  };
+}
+
 export function buildDashboardSnapshot(args: {
   workspace: WorkspaceRecord;
   sources: SourceRecord[];
@@ -229,19 +247,21 @@ export function buildDashboardSnapshot(args: {
     }),
   );
   const uniqueItems = dedupeDashboardItems(dashboardItems);
-
-  const filtered = filterDashboardItems(uniqueItems, args.filters);
-  const activeCategories = sortCategories(args.categories.filter((category) => category.isActive));
-  const sections = buildSections(filtered, activeCategories);
-  const activeView = resolveActiveView(args.filters.view, activeCategories);
+  const projected = projectDashboardState({
+    allItems: uniqueItems,
+    categories: args.categories,
+    filters: args.filters,
+  });
 
   return {
+    renderId: `${Date.now()}`,
     workspace: args.workspace,
     viewer: args.viewer,
-    activeView,
-    feedItems: getFeedItemsForView(activeView, sections, filtered),
-    sections,
-    categories: activeCategories,
+    activeView: projected.activeView,
+    allItems: uniqueItems,
+    feedItems: projected.feedItems,
+    sections: projected.sections,
+    categories: projected.categories,
     tags: args.tags,
     entities: args.entities,
     sources: args.sources,
