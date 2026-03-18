@@ -13,6 +13,7 @@ import {
   deleteRuleRecord,
   deleteSourceRecord,
   deleteTagRecord,
+  getAdminSnapshot,
   getSourceRecordById,
   toggleCategoryRecord,
   toggleRuleRecord,
@@ -39,7 +40,7 @@ import {
   type SourceFormValues,
   type SourceMutationState,
 } from "@/lib/source-forms";
-import { entityKinds, type EntityKind, type ThemeTone } from "@/lib/domain";
+import { entityKinds, type AdminSnapshot, type EntityKind, type ThemeTone } from "@/lib/domain";
 import { createSettingsToast, serializeSettingsToast, SETTINGS_TOAST_COOKIE } from "@/lib/settings-toast";
 import { splitCommaList } from "@/lib/utils";
 
@@ -135,6 +136,11 @@ async function persistAndValidateSource(
       message: `Source ${actionLabel}, but the initial sync failed. Check source status for details.`,
     };
   }
+}
+
+export async function getAdminSnapshotAction(): Promise<AdminSnapshot> {
+  await requireOwnerActionSession();
+  return getAdminSnapshot();
 }
 
 export async function createSourceAction(

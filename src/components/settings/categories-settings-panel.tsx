@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useActionState, useEffect, useMemo, useState, useTransition } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,6 +21,7 @@ type CategoryMutationAction = (
   previousState: CategoryMutationState,
   formData: FormData,
 ) => Promise<CategoryMutationState>;
+type DataChangeHandler = () => void | Promise<void>;
 
 const toneOptions: Array<{ value: ThemeTone; label: string }> = [
   { value: "sand", label: "Sand" },
@@ -414,6 +414,7 @@ function CategoryCard({
   category,
   snapshot,
   canManageCategories,
+  onDataChange,
   onEdit,
   onDelete,
   toggleAction,
@@ -421,11 +422,11 @@ function CategoryCard({
   category: CategoryRecord;
   snapshot: AdminSnapshot;
   canManageCategories: boolean;
+  onDataChange?: DataChangeHandler;
   onEdit: () => void;
   onDelete: () => void;
   toggleAction: (formData: FormData) => Promise<void>;
 }) {
-  const router = useRouter();
   const [pendingAction, setPendingAction] = useState<"toggle" | null>(null);
   const [isPending, startTransition] = useTransition();
   const matchedTags = category.tagIds
@@ -479,7 +480,7 @@ function CategoryCard({
               startTransition(async () => {
                 try {
                   await toggleAction(formData);
-                  router.refresh();
+                  await onDataChange?.();
                 } finally {
                   setPendingAction(null);
                 }
@@ -514,6 +515,7 @@ export function CategoriesSettingsPanel({
   updateAction,
   toggleAction,
   deleteAction,
+  onDataChange,
 }: {
   snapshot: AdminSnapshot;
   canManageCategories: boolean;
@@ -521,8 +523,8 @@ export function CategoriesSettingsPanel({
   updateAction: CategoryMutationAction;
   toggleAction: (formData: FormData) => Promise<void>;
   deleteAction: (formData: FormData) => Promise<void>;
+  onDataChange?: DataChangeHandler;
 }) {
-  const router = useRouter();
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
   const [activeCategoryId, setActiveCategoryId] = useState<string | null>(null);
   const [deleteCandidateId, setDeleteCandidateId] = useState<string | null>(null);
@@ -569,18 +571,22 @@ export function CategoriesSettingsPanel({
   function handleCategorySaveSuccess(message: string) {
     closeCategoryModal();
     setStatusMessage(message);
-    startRefreshTransition(() => {
-      router.refresh();
-    });
+    if (onDataChange) {
+      startRefreshTransition(() => {
+        void onDataChange();
+      });
+    }
   }
 
   function handleCategoryDeleteSuccess(categoryId: string, categoryName: string) {
     setDeleteCandidateId(null);
     setDeletedCategoryIds((currentIds) => (currentIds.includes(categoryId) ? currentIds : [...currentIds, categoryId]));
     setStatusMessage(`Category deleted: ${categoryName}.`);
-    startRefreshTransition(() => {
-      router.refresh();
-    });
+    if (onDataChange) {
+      startRefreshTransition(() => {
+        void onDataChange();
+      });
+    }
   }
 
   useEffect(() => {
@@ -625,6 +631,7 @@ export function CategoriesSettingsPanel({
                 category={category}
                 snapshot={snapshot}
                 canManageCategories={canManageCategories}
+                onDataChange={onDataChange}
                 onEdit={() => openEditModal(category.id)}
                 onDelete={() => setDeleteCandidateId(category.id)}
                 toggleAction={toggleAction}

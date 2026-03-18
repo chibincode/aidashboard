@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { DeleteConfirmModal } from "@/components/settings/delete-confirm-modal";
 import { SettingsModalShell } from "@/components/settings/settings-modal-shell";
@@ -13,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import type { AdminSnapshot, EntityRecord, TagRecord, TagRuleRecord } from "@/lib/domain";
 
 type FormAction = (formData: FormData) => Promise<void>;
+type DataChangeHandler = () => void | Promise<void>;
 
 type EntityFormValues = {
   id: string;
@@ -124,8 +124,7 @@ function EmptyState({ message }: { message: string }) {
   );
 }
 
-function useSettingsFeedback() {
-  const router = useRouter();
+function useSettingsFeedback(onDataChange?: DataChangeHandler) {
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [, startRefreshTransition] = useTransition();
 
@@ -143,9 +142,11 @@ function useSettingsFeedback() {
 
   function reportStatus(message: string) {
     setStatusMessage(message);
-    startRefreshTransition(() => {
-      router.refresh();
-    });
+    if (onDataChange) {
+      startRefreshTransition(() => {
+        void onDataChange();
+      });
+    }
   }
 
   return {
@@ -531,6 +532,7 @@ function TagListItem({
   parent,
   canManageTags,
   toggleAction,
+  onDataChange,
   onEdit,
   onDelete,
 }: {
@@ -538,10 +540,10 @@ function TagListItem({
   parent?: TagRecord;
   canManageTags: boolean;
   toggleAction: FormAction;
+  onDataChange?: DataChangeHandler;
   onEdit: () => void;
   onDelete: () => void;
 }) {
-  const router = useRouter();
   const [pendingAction, setPendingAction] = useState<"toggle" | null>(null);
   const [isPending, startTransition] = useTransition();
   const rowDisabled = !canManageTags || isPending;
@@ -574,7 +576,7 @@ function TagListItem({
               startTransition(async () => {
                 try {
                   await toggleAction(formData);
-                  router.refresh();
+                  await onDataChange?.();
                 } finally {
                   setPendingAction(null);
                 }
@@ -606,22 +608,44 @@ function RuleCreateForm({
   snapshot,
   canManageRules,
   createAction,
+  onSuccess,
 }: {
   snapshot: AdminSnapshot;
   canManageRules: boolean;
   createAction: FormAction;
+  onSuccess: () => void;
 }) {
+  const [isPending, startTransition] = useTransition();
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
   return (
-    <form action={createAction} className="grid gap-4">
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        setErrorMessage(null);
+
+        const formData = new FormData(event.currentTarget);
+
+        startTransition(async () => {
+          try {
+            await createAction(formData);
+            onSuccess();
+          } catch (error) {
+            setErrorMessage(error instanceof Error ? error.message : "Could not create rule.");
+          }
+        });
+      }}
+      className="grid gap-4"
+    >
       <label className="grid gap-1.5">
         <FieldLabel>Name</FieldLabel>
-        <Input name="name" placeholder="Pricing motion" disabled={!canManageRules} required />
+        <Input name="name" placeholder="Pricing motion" disabled={!canManageRules || isPending} required />
       </label>
 
       <div className="grid gap-4 md:grid-cols-2">
         <label className="grid gap-1.5">
           <FieldLabel>Scope</FieldLabel>
-          <Select name="sourceId" defaultValue="" disabled={!canManageRules}>
+          <Select name="sourceId" defaultValue="" disabled={!canManageRules || isPending}>
             <option value="">All sources</option>
             {snapshot.sources.map((source) => (
               <option key={source.id} value={source.id}>
@@ -632,18 +656,18 @@ function RuleCreateForm({
         </label>
         <label className="grid gap-1.5">
           <FieldLabel>Priority</FieldLabel>
-          <Input name="priority" type="number" defaultValue={50} disabled={!canManageRules} />
+          <Input name="priority" type="number" defaultValue={50} disabled={!canManageRules || isPending} />
         </label>
       </div>
 
       <label className="grid gap-1.5">
         <FieldLabel>Keywords</FieldLabel>
-        <Input name="keywords" placeholder="pricing, subscription, plan" disabled={!canManageRules} />
+        <Input name="keywords" placeholder="pricing, subscription, plan" disabled={!canManageRules || isPending} />
       </label>
 
       <label className="grid gap-1.5">
         <FieldLabel>URL Contains</FieldLabel>
-        <Input name="urlContains" placeholder="/pricing, /release" disabled={!canManageRules} />
+        <Input name="urlContains" placeholder="/pricing, /release" disabled={!canManageRules || isPending} />
       </label>
 
       <div className="grid gap-2">
@@ -651,7 +675,7 @@ function RuleCreateForm({
         <div className="flex flex-wrap gap-2">
           {snapshot.tags.map((tag) => (
             <label key={tag.id} className="flex items-center gap-2 rounded-full bg-black/[0.04] px-3 py-2 text-xs text-slate-700">
-              <input type="checkbox" name="tagIds" value={tag.id} disabled={!canManageRules} />
+              <input type="checkbox" name="tagIds" value={tag.id} disabled={!canManageRules || isPending} />
               {tag.name}
             </label>
           ))}
@@ -659,11 +683,15 @@ function RuleCreateForm({
       </div>
 
       <label className="flex items-center gap-2 text-sm text-slate-600">
-        <input type="checkbox" name="isActive" defaultChecked disabled={!canManageRules} />
+        <input type="checkbox" name="isActive" defaultChecked disabled={!canManageRules || isPending} />
         Enable immediately
       </label>
 
-      <FormSubmitButton type="submit" disabled={!canManageRules} loadingLabel="Adding...">
+      {errorMessage ? (
+        <div className="rounded-2xl border border-[#fecaca] bg-[#fff1f2] px-4 py-3 text-sm text-[#991b1b]">{errorMessage}</div>
+      ) : null}
+
+      <FormSubmitButton type="submit" disabled={!canManageRules} loading={isPending} loadingLabel="Adding...">
         Add rule
       </FormSubmitButton>
     </form>
@@ -675,15 +703,16 @@ function RuleListItem({
   snapshot,
   canManageRules,
   toggleAction,
+  onDataChange,
   onDelete,
 }: {
   rule: TagRuleRecord;
   snapshot: AdminSnapshot;
   canManageRules: boolean;
   toggleAction: FormAction;
+  onDataChange?: DataChangeHandler;
   onDelete: () => void;
 }) {
-  const router = useRouter();
   const [pendingAction, setPendingAction] = useState<"toggle" | null>(null);
   const [isPending, startTransition] = useTransition();
   const rowDisabled = !canManageRules || isPending;
@@ -723,7 +752,7 @@ function RuleListItem({
               startTransition(async () => {
                 try {
                   await toggleAction(formData);
-                  router.refresh();
+                  await onDataChange?.();
                 } finally {
                   setPendingAction(null);
                 }
@@ -757,18 +786,20 @@ export function EntitiesSettingsPanel({
   createAction,
   updateAction,
   deleteAction,
+  onDataChange,
 }: {
   snapshot: AdminSnapshot;
   canManageEntities: boolean;
   createAction: FormAction;
   updateAction: FormAction;
   deleteAction: FormAction;
+  onDataChange?: DataChangeHandler;
 }) {
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
   const [activeEntityId, setActiveEntityId] = useState<string | null>(null);
   const [deleteCandidateId, setDeleteCandidateId] = useState<string | null>(null);
   const [deletedEntityIds, setDeletedEntityIds] = useState<string[]>([]);
-  const { statusMessage, reportStatus } = useSettingsFeedback();
+  const { statusMessage, reportStatus } = useSettingsFeedback(onDataChange);
   const visibleEntities = useMemo(
     () => snapshot.entities.filter((entity) => !deletedEntityIds.includes(entity.id)),
     [deletedEntityIds, snapshot.entities],
@@ -885,6 +916,7 @@ export function TagsSettingsPanel({
   updateAction,
   toggleAction,
   deleteAction,
+  onDataChange,
 }: {
   snapshot: AdminSnapshot;
   canManageTags: boolean;
@@ -892,12 +924,13 @@ export function TagsSettingsPanel({
   updateAction: FormAction;
   toggleAction: FormAction;
   deleteAction: FormAction;
+  onDataChange?: DataChangeHandler;
 }) {
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
   const [activeTagId, setActiveTagId] = useState<string | null>(null);
   const [deleteCandidateId, setDeleteCandidateId] = useState<string | null>(null);
   const [deletedTagIds, setDeletedTagIds] = useState<string[]>([]);
-  const { statusMessage, reportStatus } = useSettingsFeedback();
+  const { statusMessage, reportStatus } = useSettingsFeedback(onDataChange);
   const visibleTags = useMemo(() => snapshot.tags.filter((tag) => !deletedTagIds.includes(tag.id)), [deletedTagIds, snapshot.tags]);
   const activeTag = activeTagId ? visibleTags.find((tag) => tag.id === activeTagId) ?? null : null;
   const deleteCandidate = deleteCandidateId ? visibleTags.find((tag) => tag.id === deleteCandidateId) ?? null : null;
@@ -958,6 +991,7 @@ export function TagsSettingsPanel({
                   parent={parent ?? undefined}
                   canManageTags={canManageTags}
                   toggleAction={toggleAction}
+                  onDataChange={onDataChange}
                   onEdit={() => openEditModal(tag.id)}
                   onDelete={() => setDeleteCandidateId(tag.id)}
                 />
@@ -1006,18 +1040,24 @@ export function RulesSettingsPanel({
   createAction,
   toggleAction,
   deleteAction,
+  onDataChange,
 }: {
   snapshot: AdminSnapshot;
   canManageRules: boolean;
   createAction: FormAction;
   toggleAction: FormAction;
   deleteAction: FormAction;
+  onDataChange?: DataChangeHandler;
 }) {
   const [deleteCandidateId, setDeleteCandidateId] = useState<string | null>(null);
   const [deletedRuleIds, setDeletedRuleIds] = useState<string[]>([]);
-  const { statusMessage, reportStatus } = useSettingsFeedback();
+  const { statusMessage, reportStatus } = useSettingsFeedback(onDataChange);
   const visibleRules = useMemo(() => snapshot.rules.filter((rule) => !deletedRuleIds.includes(rule.id)), [deletedRuleIds, snapshot.rules]);
   const deleteCandidate = deleteCandidateId ? visibleRules.find((rule) => rule.id === deleteCandidateId) ?? null : null;
+
+  function handleRuleCreateSuccess() {
+    reportStatus("Rule created.");
+  }
 
   function handleDeleteSuccess(ruleId: string, ruleName: string) {
     setDeleteCandidateId(null);
@@ -1032,7 +1072,12 @@ export function RulesSettingsPanel({
 
         <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
           <SettingsColumnCard>
-            <RuleCreateForm snapshot={snapshot} canManageRules={canManageRules} createAction={createAction} />
+            <RuleCreateForm
+              snapshot={snapshot}
+              canManageRules={canManageRules}
+              createAction={createAction}
+              onSuccess={handleRuleCreateSuccess}
+            />
           </SettingsColumnCard>
 
           <div className="grid gap-3">
@@ -1043,6 +1088,7 @@ export function RulesSettingsPanel({
                 snapshot={snapshot}
                 canManageRules={canManageRules}
                 toggleAction={toggleAction}
+                onDataChange={onDataChange}
                 onDelete={() => setDeleteCandidateId(rule.id)}
               />
             ))}

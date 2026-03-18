@@ -17,14 +17,14 @@ function isSourceDue(lastFetchedAt: Date | null, refreshMinutes: number, now: nu
 
 export async function syncDueSourcesForCurrentOwner() {
   if (!appConfig.hasDatabase) {
-    return { attempted: 0, completed: 0 };
+    return { attempted: 0, completed: 0, createdCount: 0 };
   }
 
   const session = await getAppSession();
   const workspaceId = session?.user.defaultWorkspaceId;
 
   if (!workspaceId || session.user.role !== "owner") {
-    return { attempted: 0, completed: 0 };
+    return { attempted: 0, completed: 0, createdCount: 0 };
   }
 
   const db = requireDb();
@@ -40,14 +40,17 @@ export async function syncDueSourcesForCurrentOwner() {
     .slice(0, MAX_DUE_SOURCE_SYNC_PER_REQUEST);
 
   if (dueSources.length === 0) {
-    return { attempted: 0, completed: 0 };
+    return { attempted: 0, completed: 0, createdCount: 0 };
   }
 
   const results = await Promise.allSettled(dueSources.map((source) => syncSourceById(source.id)));
-  const completed = results.filter((result) => result.status === "fulfilled").length;
+  const fulfilledResults = results.filter((result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof syncSourceById>>> => result.status === "fulfilled");
+  const completed = fulfilledResults.length;
+  const createdCount = fulfilledResults.reduce((total, result) => total + (result.value.createdCount ?? 0), 0);
 
   return {
     attempted: dueSources.length,
     completed,
+    createdCount,
   };
 }

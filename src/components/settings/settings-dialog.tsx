@@ -1,29 +1,52 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Settings2, X } from "lucide-react";
+import {
+  createCategoryAction,
+  createEntityAction,
+  createRuleAction,
+  createSourceAction,
+  createTagAction,
+  deleteCategoryAction,
+  deleteEntityAction,
+  deleteRuleAction,
+  deleteSourceAction,
+  deleteTagAction,
+  getAdminSnapshotAction,
+  toggleCategoryAction,
+  toggleRuleAction,
+  toggleSourceAction,
+  toggleTagAction,
+  updateCategoryAction,
+  updateEntityAction,
+  updateSourceAction,
+  updateTagAction,
+} from "@/actions/admin";
+import {
+  EntitiesSettingsPanel,
+  RulesSettingsPanel,
+  TagsSettingsPanel,
+} from "@/components/settings/basic-settings-panels";
+import { CategoriesSettingsPanel } from "@/components/settings/categories-settings-panel";
+import { SourcesSettingsPanel } from "@/components/settings/sources-settings-panel";
 import { Button } from "@/components/ui/button";
-import type { SettingsTabId } from "@/lib/domain";
+import type { AdminSnapshot, SettingsTabId } from "@/lib/domain";
 import { settingsTabs } from "@/lib/domain";
 import { cn } from "@/lib/utils";
 
 export function SettingsDialog({
   defaultTab = "sources",
-  sourcesPanel,
-  entitiesPanel,
-  tagsPanel,
-  categoriesPanel,
-  rulesPanel,
+  isDemoMode = false,
 }: {
   defaultTab?: SettingsTabId;
-  sourcesPanel: React.ReactNode;
-  entitiesPanel: React.ReactNode;
-  tagsPanel: React.ReactNode;
-  categoriesPanel: React.ReactNode;
-  rulesPanel: React.ReactNode;
+  isDemoMode?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<SettingsTabId>(defaultTab);
+  const [snapshot, setSnapshot] = useState<AdminSnapshot | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     if (!open) {
@@ -47,17 +70,141 @@ export function SettingsDialog({
     };
   }, [open]);
 
-  const panels: Record<SettingsTabId, React.ReactNode> = {
-    sources: sourcesPanel,
-    entities: entitiesPanel,
-    tags: tagsPanel,
-    categories: categoriesPanel,
-    rules: rulesPanel,
-  };
+  const refreshSnapshot = useCallback(async () => {
+    setIsLoading(true);
+    setLoadError(null);
+
+    try {
+      const nextSnapshot = await getAdminSnapshotAction();
+      setSnapshot(nextSnapshot);
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "Could not load settings.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
   function openDialog() {
     setActiveTab(defaultTab);
     setOpen(true);
+    if (!snapshot && !isLoading) {
+      void refreshSnapshot();
+    }
+  }
+
+  function renderPanel() {
+    if (isLoading && !snapshot) {
+      return (
+        <div className="rounded-[24px] border border-black/8 bg-white px-5 py-8 text-sm text-slate-500 shadow-[0_12px_34px_-30px_rgba(12,23,32,0.3)]">
+          Loading settings…
+        </div>
+      );
+    }
+
+    if (loadError && !snapshot) {
+      return (
+        <div className="grid gap-4 rounded-[24px] border border-[#fecaca] bg-[#fff5f5] px-5 py-6 text-sm text-[#991b1b] shadow-[0_12px_34px_-30px_rgba(12,23,32,0.3)]">
+          <p>{loadError}</p>
+          <div>
+            <Button type="button" variant="secondary" onClick={() => void refreshSnapshot()} disabled={isLoading}>
+              Retry
+            </Button>
+          </div>
+        </div>
+      );
+    }
+
+    if (!snapshot) {
+      return null;
+    }
+
+    const headerByTab: Record<SettingsTabId, { title: string; description: string }> = {
+      sources: { title: "Sources", description: "Inputs, priorities, refresh cadence." },
+      entities: { title: "Entities", description: "Tracked topics, competitors, products." },
+      tags: { title: "Tags", description: "Taxonomy for slicing the feed." },
+      categories: { title: "Categories", description: "Configurable homepage groupings driven by your taxonomy." },
+      rules: { title: "Rules", description: "Simple auto-tagging logic." },
+    };
+    const section = headerByTab[activeTab];
+
+    let panel: React.ReactNode;
+
+    switch (activeTab) {
+      case "sources":
+        panel = (
+          <SourcesSettingsPanel
+            snapshot={snapshot}
+            canManageSources
+            isDemoMode={isDemoMode}
+            createAction={createSourceAction}
+            updateAction={updateSourceAction}
+            toggleAction={toggleSourceAction}
+            deleteAction={deleteSourceAction}
+            onDataChange={refreshSnapshot}
+          />
+        );
+        break;
+      case "entities":
+        panel = (
+          <EntitiesSettingsPanel
+            snapshot={snapshot}
+            canManageEntities
+            createAction={createEntityAction}
+            updateAction={updateEntityAction}
+            deleteAction={deleteEntityAction}
+            onDataChange={refreshSnapshot}
+          />
+        );
+        break;
+      case "tags":
+        panel = (
+          <TagsSettingsPanel
+            snapshot={snapshot}
+            canManageTags
+            createAction={createTagAction}
+            updateAction={updateTagAction}
+            toggleAction={toggleTagAction}
+            deleteAction={deleteTagAction}
+            onDataChange={refreshSnapshot}
+          />
+        );
+        break;
+      case "categories":
+        panel = (
+          <CategoriesSettingsPanel
+            snapshot={snapshot}
+            canManageCategories
+            createAction={createCategoryAction}
+            updateAction={updateCategoryAction}
+            toggleAction={toggleCategoryAction}
+            deleteAction={deleteCategoryAction}
+            onDataChange={refreshSnapshot}
+          />
+        );
+        break;
+      case "rules":
+        panel = (
+          <RulesSettingsPanel
+            snapshot={snapshot}
+            canManageRules
+            createAction={createRuleAction}
+            toggleAction={toggleRuleAction}
+            deleteAction={deleteRuleAction}
+            onDataChange={refreshSnapshot}
+          />
+        );
+        break;
+    }
+
+    return (
+      <div>
+        <div className="mb-4">
+          <h2 className="text-lg font-semibold tracking-tight text-slate-950">{section.title}</h2>
+          <p className="mt-1 text-sm text-slate-500">{section.description}</p>
+        </div>
+        {panel}
+      </div>
+    );
   }
 
   return (
@@ -135,7 +282,7 @@ export function SettingsDialog({
                   </div>
                 </aside>
 
-                <div className="min-h-0 overflow-y-auto p-4 md:p-5">{panels[activeTab]}</div>
+                <div className="min-h-0 overflow-y-auto p-4 md:p-5">{renderPanel()}</div>
               </div>
             </section>
           </div>

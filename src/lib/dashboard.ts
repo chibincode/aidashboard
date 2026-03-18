@@ -121,7 +121,7 @@ function toDashboardItem(args: {
   };
 }
 
-function filterDashboardItems(items: DashboardItem[], filters: DashboardFilters) {
+export function filterDashboardItems(items: DashboardItem[], filters: DashboardFilters) {
   return items.filter((item) => {
     if (filters.entity && item.entityId !== filters.entity) {
       return false;
@@ -165,7 +165,11 @@ function itemMatchesCategory(item: DashboardItem, category: CategoryRecord) {
   return hasTagMatch || hasEntityMatch || hasEntityKindMatch;
 }
 
-function buildSections(items: DashboardItem[], categories: CategoryRecord[]): DashboardSection[] {
+export function getActiveDashboardCategories(categories: CategoryRecord[]) {
+  return sortCategories(categories.filter((category) => category.isActive));
+}
+
+export function buildDashboardSections(items: DashboardItem[], categories: CategoryRecord[]): DashboardSection[] {
   const dynamicSections = categories.map<DashboardSection>((category) => ({
     id: category.id,
     title: category.name,
@@ -187,7 +191,7 @@ function buildSections(items: DashboardItem[], categories: CategoryRecord[]): Da
   ];
 }
 
-function resolveActiveView(view: DashboardView | undefined, categories: CategoryRecord[]) {
+export function resolveActiveDashboardView(view: DashboardView | undefined, categories: CategoryRecord[]) {
   if (!view || view === "all" || view === "saved") {
     return view ?? "all";
   }
@@ -195,7 +199,7 @@ function resolveActiveView(view: DashboardView | undefined, categories: Category
   return categories.some((category) => category.id === view) ? view : "all";
 }
 
-function getFeedItemsForView(view: DashboardView, sections: DashboardSection[], items: DashboardItem[]) {
+export function getDashboardFeedItemsForView(view: DashboardView, sections: DashboardSection[], items: DashboardItem[]) {
   if (view === "all") {
     return items;
   }
@@ -209,15 +213,15 @@ export function projectDashboardState(args: {
   filters: DashboardFilters;
 }) {
   const filtered = filterDashboardItems(args.allItems, args.filters);
-  const activeCategories = sortCategories(args.categories.filter((category) => category.isActive));
-  const sections = buildSections(filtered, activeCategories);
-  const activeView = resolveActiveView(args.filters.view, activeCategories);
+  const activeCategories = getActiveDashboardCategories(args.categories);
+  const sections = buildDashboardSections(filtered, activeCategories);
+  const activeView = resolveActiveDashboardView(args.filters.view, activeCategories);
 
   return {
     activeView,
     categories: activeCategories,
     sections,
-    feedItems: getFeedItemsForView(activeView, sections, filtered),
+    feedItems: getDashboardFeedItemsForView(activeView, sections, filtered),
   };
 }
 

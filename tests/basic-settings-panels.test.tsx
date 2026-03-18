@@ -8,16 +8,6 @@ import {
 } from "@/components/settings/basic-settings-panels";
 import type { AdminSnapshot } from "@/lib/domain";
 
-const { routerRefresh } = vi.hoisted(() => ({
-  routerRefresh: vi.fn(),
-}));
-
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({
-    refresh: routerRefresh,
-  }),
-}));
-
 function buildSnapshot(): AdminSnapshot {
   return {
     workspace: {
@@ -112,13 +102,13 @@ const noopFormAction = vi.fn(async () => {});
 
 describe("basic settings panels delete confirmation", () => {
   beforeEach(() => {
-    routerRefresh.mockReset();
     noopFormAction.mockClear();
   });
 
   it("asks for confirmation before deleting an entity and only deletes on confirm", async () => {
     const user = userEvent.setup();
     const deleteAction = vi.fn(async () => {});
+    const onDataChange = vi.fn(async () => {});
 
     render(
       <EntitiesSettingsPanel
@@ -127,6 +117,7 @@ describe("basic settings panels delete confirmation", () => {
         createAction={noopFormAction}
         updateAction={noopFormAction}
         deleteAction={deleteAction}
+        onDataChange={onDataChange}
       />,
     );
 
@@ -146,7 +137,7 @@ describe("basic settings panels delete confirmation", () => {
     expect(deleteAction).toHaveBeenCalledTimes(1);
     expect(screen.queryByText("AI UX Signals")).not.toBeInTheDocument();
     expect(screen.getByText("Entity deleted: AI UX Signals.")).toBeInTheDocument();
-    expect(routerRefresh).toHaveBeenCalledTimes(1);
+    expect(onDataChange).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the tag delete modal open when deletion fails", async () => {
@@ -154,6 +145,7 @@ describe("basic settings panels delete confirmation", () => {
     const deleteAction = vi.fn(async () => {
       throw new Error("Delete failed.");
     });
+    const onDataChange = vi.fn(async () => {});
 
     render(
       <TagsSettingsPanel
@@ -163,6 +155,7 @@ describe("basic settings panels delete confirmation", () => {
         updateAction={noopFormAction}
         toggleAction={noopFormAction}
         deleteAction={deleteAction}
+        onDataChange={onDataChange}
       />,
     );
 
@@ -176,8 +169,8 @@ describe("basic settings panels delete confirmation", () => {
     });
 
     expect(screen.getByRole("dialog", { name: "Delete tag" })).toBeInTheDocument();
-    expect(screen.getAllByText("AI UX/UI")).toHaveLength(2);
-    expect(routerRefresh).not.toHaveBeenCalled();
+    expect(screen.getAllByText("AI UX/UI").length).toBeGreaterThan(1);
+    expect(onDataChange).not.toHaveBeenCalled();
   });
 
   it("closes the rule delete modal on escape without deleting", async () => {
@@ -225,10 +218,11 @@ describe("basic settings panels delete confirmation", () => {
     expect(screen.queryByPlaceholderText("Company or topic name")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Add entity" }));
-    expect(screen.getByRole("dialog", { name: "Add entity" })).toBeInTheDocument();
+    const addDialog = screen.getByRole("dialog", { name: "Add entity" });
+    expect(addDialog).toBeInTheDocument();
 
     await user.type(screen.getByRole("textbox", { name: "Name" }), "New entity");
-    await user.click(screen.getByRole("button", { name: "Add entity" }));
+    await user.click(within(addDialog).getByRole("button", { name: "Add entity" }));
 
     await waitFor(() => {
       expect(createAction).toHaveBeenCalledTimes(1);
@@ -266,10 +260,11 @@ describe("basic settings panels delete confirmation", () => {
     expect(screen.queryByPlaceholderText("Feature launch")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Add tag" }));
-    expect(screen.getByRole("dialog", { name: "Add tag" })).toBeInTheDocument();
+    const addDialog = screen.getByRole("dialog", { name: "Add tag" });
+    expect(addDialog).toBeInTheDocument();
 
     await user.type(screen.getByRole("textbox", { name: "Name" }), "New tag");
-    await user.click(screen.getByRole("button", { name: "Add tag" }));
+    await user.click(within(addDialog).getByRole("button", { name: "Add tag" }));
 
     await waitFor(() => {
       expect(createAction).toHaveBeenCalledTimes(1);

@@ -1,8 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useOptimistic, useState, useTransition } from "react";
+import { memo, useEffect, useState, useTransition } from "react";
 import {
   Bookmark,
   CheckCheck,
@@ -26,6 +25,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { cn, compactNumber, formatRelativeTime } from "@/lib/utils";
+
+type ItemStateChangeHandler = (
+  itemId: string,
+  patch: Partial<Pick<DashboardItem, "isRead" | "isSaved">>,
+) => void;
 
 const contentTypeIcon = {
   article: Newspaper,
@@ -135,7 +139,7 @@ function getResolvedSocialCounts(item: DashboardItem) {
   };
 }
 
-function TagPills({ item }: { item: DashboardItem }) {
+const TagPills = memo(function TagPills({ item }: { item: DashboardItem }) {
   return (
     <div className="flex flex-wrap gap-2">
       {item.tags.map((tag) => (
@@ -149,20 +153,69 @@ function TagPills({ item }: { item: DashboardItem }) {
       ))}
     </div>
   );
-}
+});
 
-export function FeedCard({ item }: { item: DashboardItem }) {
-  const router = useRouter();
+type FeedCardActionsProps = {
+  className?: string;
+  isPending: boolean;
+  isRead: boolean;
+  isSaved: boolean;
+  pendingAction: "read" | "save" | null;
+  onToggleRead: () => void;
+  onToggleSaved: () => void;
+};
+
+const FeedCardActions = memo(function FeedCardActions({
+  className,
+  isPending,
+  isRead,
+  isSaved,
+  pendingAction,
+  onToggleRead,
+  onToggleSaved,
+}: FeedCardActionsProps) {
+  return (
+    <div className={cn("flex flex-wrap items-center justify-end gap-2", className)}>
+      <Button
+        variant={isRead ? "secondary" : "primary"}
+        size="sm"
+        disabled={isPending}
+        loading={pendingAction === "read"}
+        loadingLabel={isRead ? "Marking unread..." : "Marking read..."}
+        onClick={onToggleRead}
+      >
+        <CheckCheck className="size-3.5" />
+        {isRead ? "Unread" : "Read"}
+      </Button>
+      <Button
+        variant={isSaved ? "primary" : "secondary"}
+        size="sm"
+        disabled={isPending}
+        loading={pendingAction === "save"}
+        loadingLabel={isSaved ? "Unsaving..." : "Saving..."}
+        onClick={onToggleSaved}
+      >
+        <Bookmark className="size-3.5" />
+        {isSaved ? "Saved" : "Save"}
+      </Button>
+    </div>
+  );
+});
+
+export const FeedCard = memo(function FeedCard({
+  item,
+  onItemStateChange,
+}: {
+  item: DashboardItem;
+  onItemStateChange?: ItemStateChangeHandler;
+}) {
   const [isPending, startTransition] = useTransition();
   const [detailOpen, setDetailOpen] = useState(false);
   const [pendingAction, setPendingAction] = useState<"read" | "save" | null>(null);
-  const [optimistic, updateOptimistic] = useOptimistic(
-    { isRead: item.isRead, isSaved: item.isSaved },
-    (state, patch: Partial<{ isRead: boolean; isSaved: boolean }>) => ({
-      ...state,
-      ...patch,
-    }),
-  );
+  const [optimisticState, setOptimisticState] = useState({
+    isRead: item.isRead,
+    isSaved: item.isSaved,
+  });
 
   const Icon = contentTypeIcon[item.contentType];
   const meta = sourceTypeMeta[item.sourceType];
@@ -181,14 +234,28 @@ export function FeedCard({ item }: { item: DashboardItem }) {
     (item.sourceType === "website" || item.sourceType === "rss") &&
     item.tags.some((tag) => tag.slug === "website-inspiration");
   const actionLabel = isWebsiteInspiration ? "Open review" : meta.actionLabel;
+  const intrinsicBlockSize = isYouTube || item.thumbnailUrl ? "520px" : "360px";
+
+  useEffect(() => {
+    setOptimisticState({
+      isRead: item.isRead,
+      isSaved: item.isSaved,
+    });
+  }, [item.isRead, item.isSaved]);
 
   function setReadValue(nextValue: boolean) {
+    const previousValue = optimisticState.isRead;
+
+    setOptimisticState((currentState) => ({ ...currentState, isRead: nextValue }));
+    onItemStateChange?.(item.id, { isRead: nextValue });
+
     startTransition(async () => {
       setPendingAction("read");
       try {
-        updateOptimistic({ isRead: nextValue });
         await setItemReadAction(item.id, nextValue);
-        router.refresh();
+      } catch {
+        setOptimisticState((currentState) => ({ ...currentState, isRead: previousValue }));
+        onItemStateChange?.(item.id, { isRead: previousValue });
       } finally {
         setPendingAction(null);
       }
@@ -196,12 +263,18 @@ export function FeedCard({ item }: { item: DashboardItem }) {
   }
 
   function setSavedValue(nextValue: boolean) {
+    const previousValue = optimisticState.isSaved;
+
+    setOptimisticState((currentState) => ({ ...currentState, isSaved: nextValue }));
+    onItemStateChange?.(item.id, { isSaved: nextValue });
+
     startTransition(async () => {
       setPendingAction("save");
       try {
-        updateOptimistic({ isSaved: nextValue });
         await toggleSavedAction(item.id, nextValue);
-        router.refresh();
+      } catch {
+        setOptimisticState((currentState) => ({ ...currentState, isSaved: previousValue }));
+        onItemStateChange?.(item.id, { isSaved: previousValue });
       } finally {
         setPendingAction(null);
       }
@@ -210,30 +283,15 @@ export function FeedCard({ item }: { item: DashboardItem }) {
 
   function renderStateButtons(className?: string) {
     return (
-      <div className={cn("flex flex-wrap items-center justify-end gap-2", className)}>
-        <Button
-          variant={optimistic.isRead ? "secondary" : "primary"}
-          size="sm"
-          disabled={isPending}
-          loading={pendingAction === "read"}
-          loadingLabel={optimistic.isRead ? "Marking unread..." : "Marking read..."}
-          onClick={() => setReadValue(!optimistic.isRead)}
-        >
-          <CheckCheck className="size-3.5" />
-          {optimistic.isRead ? "Unread" : "Read"}
-        </Button>
-        <Button
-          variant={optimistic.isSaved ? "primary" : "secondary"}
-          size="sm"
-          disabled={isPending}
-          loading={pendingAction === "save"}
-          loadingLabel={optimistic.isSaved ? "Unsaving..." : "Saving..."}
-          onClick={() => setSavedValue(!optimistic.isSaved)}
-        >
-          <Bookmark className="size-3.5" />
-          {optimistic.isSaved ? "Saved" : "Save"}
-        </Button>
-      </div>
+      <FeedCardActions
+        className={className}
+        isPending={isPending}
+        isRead={optimisticState.isRead}
+        isSaved={optimisticState.isSaved}
+        pendingAction={pendingAction}
+        onToggleRead={() => setReadValue(!optimisticState.isRead)}
+        onToggleSaved={() => setSavedValue(!optimisticState.isSaved)}
+      />
     );
   }
 
@@ -243,10 +301,11 @@ export function FeedCard({ item }: { item: DashboardItem }) {
         className={cn(
           "group overflow-hidden rounded-[24px] border transition hover:border-black/10 hover:bg-white hover:shadow-[0_16px_40px_-32px_rgba(11,31,43,0.5)]",
           meta.frameClass,
-          optimistic.isRead
+          optimisticState.isRead
             ? "border-black/6 bg-white/72"
             : "border-[color:var(--accent-soft)] bg-white/92 shadow-[0_12px_30px_-28px_rgba(11,31,43,0.32)]",
         )}
+        style={{ contentVisibility: "auto", containIntrinsicSize: intrinsicBlockSize }}
       >
         {isYouTube ? (
           <div>
@@ -541,4 +600,6 @@ export function FeedCard({ item }: { item: DashboardItem }) {
       />
     </>
   );
-}
+});
+
+FeedCard.displayName = "FeedCard";

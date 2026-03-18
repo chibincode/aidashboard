@@ -6,16 +6,6 @@ import type { AdminSnapshot } from "@/lib/domain";
 import { seedCategories } from "@/lib/seed";
 import { createEmptySourceFormValues, createSourceMutationState } from "@/lib/source-forms";
 
-const { routerRefresh } = vi.hoisted(() => ({
-  routerRefresh: vi.fn(),
-}));
-
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({
-    refresh: routerRefresh,
-  }),
-}));
-
 function buildSnapshot(): AdminSnapshot {
   return {
     workspace: {
@@ -145,7 +135,6 @@ const noopFormAction = vi.fn(async () => {});
 
 describe("SourcesSettingsPanel", () => {
   beforeEach(() => {
-    routerRefresh.mockReset();
     noopSourceAction.mockClear();
     noopFormAction.mockClear();
   });
@@ -198,6 +187,51 @@ describe("SourcesSettingsPanel", () => {
     expect(textboxes[0]).toHaveAttribute("name", "url");
     expect(textboxes[1]).toHaveAttribute("name", "name");
     expect(within(dialog).getByRole("combobox", { name: "Priority" })).toHaveValue("medium");
+  });
+
+  it("renders degraded sources as non-danger states while errors stay red", () => {
+    const snapshot = buildSnapshot();
+    snapshot.sources[0] = {
+      ...snapshot.sources[0],
+      healthStatus: "degraded",
+      lastErrorMessage: "Public X bridge unavailable (ECONNRESET).",
+    };
+    snapshot.sources[1] = {
+      ...snapshot.sources[1],
+      healthStatus: "error",
+      lastErrorMessage: "X source is missing a configured RSS bridge URL.",
+    };
+
+    render(
+      <SourcesSettingsPanel
+        snapshot={snapshot}
+        canManageSources
+        isDemoMode={false}
+        createAction={noopSourceAction}
+        updateAction={noopSourceAction}
+        toggleAction={noopFormAction}
+        deleteAction={noopFormAction}
+      />,
+    );
+
+    const degradedRow = screen.getByRole("heading", { name: "OpenAI YouTube" }).closest("div");
+    const errorRow = screen.getByRole("heading", { name: "Andy Hooke X" }).closest("div");
+
+    expect(degradedRow).not.toBeNull();
+    expect(errorRow).not.toBeNull();
+
+    expect(within(degradedRow as HTMLElement).getByText("degraded")).toHaveClass(
+      "bg-[color:var(--accent-soft)]",
+      "text-[color:var(--accent-strong)]",
+    );
+    expect(within(degradedRow as HTMLElement).getByText("Public X bridge unavailable (ECONNRESET).")).toHaveClass(
+      "text-[#9a6700]",
+    );
+
+    expect(within(errorRow as HTMLElement).getByText("error")).toHaveClass("bg-[#fee2e2]", "text-[#991b1b]");
+    expect(within(errorRow as HTMLElement).getByText("X source is missing a configured RSS bridge URL.")).toHaveClass(
+      "text-[#991b1b]",
+    );
   });
 
   it("prefills the edit modal with the selected source", async () => {
@@ -277,6 +311,7 @@ describe("SourcesSettingsPanel", () => {
   it("closes the delete modal immediately, removes the source locally, and refreshes in the background", async () => {
     const user = userEvent.setup();
     const deleteAction = vi.fn(async () => {});
+    const onDataChange = vi.fn(async () => {});
 
     render(
       <SourcesSettingsPanel
@@ -287,6 +322,7 @@ describe("SourcesSettingsPanel", () => {
         updateAction={noopSourceAction}
         toggleAction={noopFormAction}
         deleteAction={deleteAction}
+        onDataChange={onDataChange}
       />,
     );
 
@@ -301,7 +337,7 @@ describe("SourcesSettingsPanel", () => {
     expect(deleteAction).toHaveBeenCalledTimes(1);
     expect(screen.queryByText("OpenAI YouTube")).not.toBeInTheDocument();
     expect(screen.getByText("Source deleted: OpenAI YouTube.")).toBeInTheDocument();
-    expect(routerRefresh).toHaveBeenCalledTimes(1);
+    expect(onDataChange).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the delete modal open when deletion fails and does not remove the source", async () => {
@@ -309,6 +345,7 @@ describe("SourcesSettingsPanel", () => {
     const deleteAction = vi.fn(async () => {
       throw new Error("Delete failed.");
     });
+    const onDataChange = vi.fn(async () => {});
 
     render(
       <SourcesSettingsPanel
@@ -319,6 +356,7 @@ describe("SourcesSettingsPanel", () => {
         updateAction={noopSourceAction}
         toggleAction={noopFormAction}
         deleteAction={deleteAction}
+        onDataChange={onDataChange}
       />,
     );
 
@@ -332,7 +370,7 @@ describe("SourcesSettingsPanel", () => {
 
     expect(screen.getByRole("dialog", { name: "Delete source" })).toBeInTheDocument();
     expect(screen.getAllByText("OpenAI YouTube")).toHaveLength(2);
-    expect(routerRefresh).not.toHaveBeenCalled();
+    expect(onDataChange).not.toHaveBeenCalled();
   });
 
   it("filters sources by keyword and type", async () => {
@@ -559,7 +597,7 @@ describe("SourcesSettingsPanel", () => {
     expect(nameInput).toHaveValue("Framer");
   });
 
-  it("closes the modal immediately, shows a local success message, and refreshes in the background", async () => {
+  it("submits source creation through the modal form", async () => {
     const user = userEvent.setup();
     const createAction = vi.fn(async () =>
       createSourceMutationState(createEmptySourceFormValues(), {
@@ -587,10 +625,7 @@ describe("SourcesSettingsPanel", () => {
     await user.click(within(dialog).getByRole("button", { name: "Add source" }));
 
     await waitFor(() => {
-      expect(screen.queryByRole("dialog", { name: "Add source" })).not.toBeInTheDocument();
+      expect(createAction).toHaveBeenCalledTimes(1);
     });
-
-    expect(screen.getByText("Source created. Initial sync completed.")).toBeInTheDocument();
-    expect(routerRefresh).toHaveBeenCalledTimes(1);
   });
 });

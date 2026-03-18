@@ -1,20 +1,10 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { CategoriesSettingsPanel } from "@/components/settings/categories-settings-panel";
 import { createCategoryMutationState, createEmptyCategoryFormValues, type CategoryMutationState } from "@/lib/category-forms";
 import type { AdminSnapshot } from "@/lib/domain";
 import { seedCategories } from "@/lib/seed";
-
-const { routerRefresh } = vi.hoisted(() => ({
-  routerRefresh: vi.fn(),
-}));
-
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({
-    refresh: routerRefresh,
-  }),
-}));
 
 function buildSnapshot(): AdminSnapshot {
   return {
@@ -154,7 +144,9 @@ describe("CategoriesSettingsPanel", () => {
     await user.click(screen.getByRole("button", { name: "Save category" }));
 
     expect(updateAction).toHaveBeenCalled();
-    expect(screen.queryByRole("dialog", { name: "Edit category" })).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Edit category" })).not.toBeInTheDocument();
+    });
     expect(screen.getByRole("button", { name: "Add category" })).toBeInTheDocument();
   });
 });

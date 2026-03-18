@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 import {
   Bookmark,
   ExternalLink,
@@ -201,6 +202,10 @@ export function FeedDetailModal({
     return null;
   }
 
+  if (typeof document === "undefined") {
+    return null;
+  }
+
   const Icon = contentTypeIcon[item.contentType];
   const meta = sourceTypeMeta[item.sourceType];
   const hasMedia = item.sourceType === "youtube" || Boolean(item.thumbnailUrl);
@@ -211,7 +216,7 @@ export function FeedDetailModal({
       ? "Open review"
       : meta.actionLabel;
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50" aria-hidden={!open}>
       <div className="absolute inset-0 bg-[rgba(15,23,42,0.2)] backdrop-blur-sm" onClick={onClose} />
 
@@ -358,6 +363,7 @@ export function FeedDetailModal({
           </div>
         </section>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

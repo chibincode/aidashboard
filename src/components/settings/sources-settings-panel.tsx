@@ -1,6 +1,5 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { useActionState, useEffect, useRef, useState, useTransition } from "react";
 import { sourceTypes, type AdminSnapshot, type SourceRecord, type SourceType } from "@/lib/domain";
 import type { SourceMutationState } from "@/lib/source-forms";
@@ -30,6 +29,7 @@ type SourceAction = (
   previousState: SourceMutationState,
   formData: FormData,
 ) => Promise<SourceMutationState>;
+type DataChangeHandler = () => void | Promise<void>;
 
 const sourceTypeLabels: Record<SourceType, string> = {
   website: "Website",
@@ -606,6 +606,7 @@ function SourceListItem({
   source,
   snapshot,
   canManageSources,
+  onDataChange,
   onEdit,
   onDelete,
   toggleAction,
@@ -613,14 +614,21 @@ function SourceListItem({
   source: SourceRecord;
   snapshot: AdminSnapshot;
   canManageSources: boolean;
+  onDataChange?: DataChangeHandler;
   onEdit: () => void;
   onDelete: () => void;
   toggleAction: (formData: FormData) => Promise<void>;
 }) {
-  const router = useRouter();
   const [pendingAction, setPendingAction] = useState<"toggle" | null>(null);
   const [isPending, startTransition] = useTransition();
   const rowDisabled = !canManageSources || isPending;
+  const healthTone =
+    source.healthStatus === "error"
+      ? "danger"
+      : source.healthStatus === "degraded"
+        ? "accent"
+        : "muted";
+  const errorTextClass = source.healthStatus === "error" ? "text-[#991b1b]" : "text-[#9a6700]";
 
   return (
     <SettingsColumnCard>
@@ -628,7 +636,7 @@ function SourceListItem({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <Badge tone={source.isActive ? "accent" : "muted"}>{source.isActive ? "active" : "paused"}</Badge>
-            <Badge tone={source.healthStatus === "healthy" ? "muted" : "danger"}>{source.healthStatus}</Badge>
+            <Badge tone={healthTone}>{source.healthStatus}</Badge>
             <Badge tone="muted">{source.type}</Badge>
             {isGalleryExtractorProfile(getSourceExtractorProfile(source)) ? (
               <Badge tone="muted">website inspiration</Badge>
@@ -657,7 +665,7 @@ function SourceListItem({
             Priority {getPriorityLabel(priorityValueToLevel(source.priority))} · every {source.refreshMinutes} min ·{" "}
             {source.lastFetchedAt ? `validated ${formatRelativeTime(source.lastFetchedAt)}` : "not validated yet"}
           </p>
-          {source.lastErrorMessage ? <p className="mt-2 text-sm text-[#991b1b]">{source.lastErrorMessage}</p> : null}
+          {source.lastErrorMessage ? <p className={`mt-2 text-sm ${errorTextClass}`}>{source.lastErrorMessage}</p> : null}
         </div>
 
         <div className="flex shrink-0 flex-wrap gap-2">
@@ -673,7 +681,7 @@ function SourceListItem({
               startTransition(async () => {
                 try {
                   await toggleAction(formData);
-                  router.refresh();
+                  await onDataChange?.();
                 } finally {
                   setPendingAction(null);
                 }
@@ -709,6 +717,7 @@ export function SourcesSettingsPanel({
   updateAction,
   toggleAction,
   deleteAction,
+  onDataChange,
 }: {
   snapshot: AdminSnapshot;
   canManageSources: boolean;
@@ -717,8 +726,8 @@ export function SourcesSettingsPanel({
   updateAction: SourceAction;
   toggleAction: (formData: FormData) => Promise<void>;
   deleteAction: (formData: FormData) => Promise<void>;
+  onDataChange?: DataChangeHandler;
 }) {
-  const router = useRouter();
   const [modalMode, setModalMode] = useState<"create" | "edit" | null>(null);
   const [activeSourceId, setActiveSourceId] = useState<string | null>(null);
   const [deleteCandidateId, setDeleteCandidateId] = useState<string | null>(null);
@@ -769,18 +778,22 @@ export function SourcesSettingsPanel({
   function handleSourceSaveSuccess(message: string) {
     closeSourceModal();
     setStatusMessage(message);
-    startRefreshTransition(() => {
-      router.refresh();
-    });
+    if (onDataChange) {
+      startRefreshTransition(() => {
+        void onDataChange();
+      });
+    }
   }
 
   function handleSourceDeleteSuccess(sourceId: string, sourceName: string) {
     setDeleteCandidateId(null);
     setDeletedSourceIds((currentIds) => (currentIds.includes(sourceId) ? currentIds : [...currentIds, sourceId]));
     setStatusMessage(`Source deleted: ${sourceName}.`);
-    startRefreshTransition(() => {
-      router.refresh();
-    });
+    if (onDataChange) {
+      startRefreshTransition(() => {
+        void onDataChange();
+      });
+    }
   }
 
   useEffect(() => {
@@ -870,6 +883,7 @@ export function SourcesSettingsPanel({
                 source={source}
                 snapshot={snapshot}
                 canManageSources={canManageSources}
+                onDataChange={onDataChange}
                 onEdit={() => openEditModal(source.id)}
                 onDelete={() => setDeleteCandidateId(source.id)}
                 toggleAction={toggleAction}

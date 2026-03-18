@@ -1,4 +1,5 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { FeedCard } from "@/components/dashboard/feed-card";
 import { FeedDetailModal } from "@/components/dashboard/feed-detail-modal";
@@ -112,6 +113,58 @@ describe("X content presentation", () => {
       ),
     ).toBeInTheDocument();
     expect(screen.queryByText("刚知道 Macbook Neo 的自定义色彩主题在其他 Mac 电脑上也可以用了...")).not.toBeInTheDocument();
+  });
+
+  it("portals feed detail dialogs to document.body and keeps close behavior intact", async () => {
+    const user = userEvent.setup();
+    const item = buildDashboardItem({
+      id: "item_web_1",
+      title: "AI agent handoff patterns",
+      excerpt: "A practical review of how teams keep agents oriented across tabs and tools.",
+      canonicalUrl: "https://example.com/handoff",
+      contentType: "article",
+      sourceName: "Example Website",
+      sourceHandle: null,
+      sourceType: "website",
+      socialMetrics: null,
+      entityName: null,
+      entityKind: null,
+    });
+    const { container } = render(
+      <div style={{ contentVisibility: "auto" }}>
+        <FeedCard item={item} />
+      </div>,
+    );
+
+    await user.click(
+      screen.getByRole("button", {
+        name: /AI agent handoff patterns/,
+      }),
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "AI agent handoff patterns" });
+    expect(document.body).toContainElement(dialog);
+    expect(container).not.toContainElement(dialog);
+    expect(document.body.style.overflow).toBe("hidden");
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "AI agent handoff patterns" })).not.toBeInTheDocument();
+    expect(document.body.style.overflow).toBe("");
+
+    await user.click(
+      screen.getByRole("button", {
+        name: /AI agent handoff patterns/,
+      }),
+    );
+
+    expect(screen.getByRole("dialog", { name: "AI agent handoff patterns" })).toBeInTheDocument();
+
+    const overlay = document.body.querySelector("div.absolute.inset-0.bg-\\[rgba\\(15\\,23\\,42\\,0\\.2\\)\\].backdrop-blur-sm");
+    expect(overlay).not.toBeNull();
+    fireEvent.click(overlay as Element);
+
+    expect(screen.queryByRole("dialog", { name: "AI agent handoff patterns" })).not.toBeInTheDocument();
+    expect(document.body.style.overflow).toBe("");
   });
 
   it("keeps non-X cards on the existing title and excerpt layout", () => {

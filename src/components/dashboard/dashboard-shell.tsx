@@ -1,14 +1,21 @@
 "use client";
 
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useRouter } from "next/navigation";
 import { DashboardFiltersBar } from "@/components/dashboard/filters-bar";
 import { FeedCard } from "@/components/dashboard/feed-card";
 import { DashboardViewTabs } from "@/components/dashboard/view-tabs";
 import { getDashboardViewLabel } from "@/components/dashboard/view-meta";
 import { Card } from "@/components/ui/card";
-import { projectDashboardState } from "@/lib/dashboard";
+import {
+  buildDashboardSections,
+  filterDashboardItems,
+  getActiveDashboardCategories,
+  getDashboardFeedItemsForView,
+  resolveActiveDashboardView,
+} from "@/lib/dashboard";
 import { DASHBOARD_LOCATION_CHANGE_EVENT, DASHBOARD_REFRESH_START_EVENT } from "@/lib/dashboard-events";
-import type { DashboardFilters, DashboardSnapshot, DashboardView } from "@/lib/domain";
+import type { DashboardFilters, DashboardItem, DashboardSnapshot, DashboardView } from "@/lib/domain";
 import { parseDashboardFiltersFromSearchParams, serializeDashboardFilters } from "@/lib/filters";
 
 function DashboardFeedSkeleton({
@@ -60,7 +67,11 @@ export function DashboardShell({
   snapshot: DashboardSnapshot;
   filters: DashboardFilters;
 }) {
+  const router = useRouter();
   const [refreshingRenderId, setRefreshingRenderId] = useState<string | null>(null);
+  const [itemStateOverrides, setItemStateOverrides] = useState<
+    Record<string, Partial<Pick<DashboardItem, "isRead" | "isSaved">>>
+  >({});
   const initialSearch = useMemo(() => {
     const query = serializeDashboardFilters(filters);
     return query ? `?${query}` : "";
@@ -86,18 +97,47 @@ export function DashboardShell({
     () => parseDashboardFiltersFromSearchParams(new URLSearchParams(currentSearch)),
     [currentSearch],
   );
-
-  const projected = useMemo(
+  const deferredFilters = useDeferredValue(currentFilters);
+  const itemsWithOverrides = useMemo(
     () =>
-      projectDashboardState({
-        allItems: snapshot.allItems,
-        categories: snapshot.categories,
-        filters: currentFilters,
+      snapshot.allItems.map((item) => {
+        const override = itemStateOverrides[item.id];
+        return override ? { ...item, ...override } : item;
       }),
-    [currentFilters, snapshot.allItems, snapshot.categories],
+    [itemStateOverrides, snapshot.allItems],
+  );
+  const activeCategories = useMemo(() => getActiveDashboardCategories(snapshot.categories), [snapshot.categories]);
+  const filteredItems = useMemo(
+    () => filterDashboardItems(itemsWithOverrides, deferredFilters),
+    [deferredFilters, itemsWithOverrides],
+  );
+  const sections = useMemo(
+    () => buildDashboardSections(filteredItems, activeCategories),
+    [activeCategories, filteredItems],
+  );
+  const activeView = useMemo(
+    () => resolveActiveDashboardView(deferredFilters.view, activeCategories),
+    [activeCategories, deferredFilters.view],
+  );
+  const projectedFeedItems = useMemo(
+    () => getDashboardFeedItemsForView(activeView, sections, filteredItems),
+    [activeView, filteredItems, sections],
+  );
+  const projected = useMemo(
+    () => ({
+      activeView,
+      categories: activeCategories,
+      sections,
+      feedItems: projectedFeedItems,
+    }),
+    [activeCategories, activeView, projectedFeedItems, sections],
   );
   const activeLabel = getDashboardViewLabel(projected.activeView, projected.categories);
   const isBackgroundRefreshing = refreshingRenderId === snapshot.renderId;
+
+  useEffect(() => {
+    setItemStateOverrides({});
+  }, [snapshot.renderId]);
 
   function syncUrl(nextFilters: DashboardFilters, mode: "push" | "replace" = "push") {
     const query = serializeDashboardFilters(nextFilters);
@@ -139,6 +179,29 @@ export function DashboardShell({
     };
   }, [snapshot.renderId]);
 
+  const handleItemStateChange = useCallback(
+    (itemId: string, patch: Partial<Pick<DashboardItem, "isRead" | "isSaved">>) => {
+      setItemStateOverrides((currentOverrides) => ({
+        ...currentOverrides,
+        [itemId]: {
+          ...currentOverrides[itemId],
+          ...patch,
+        },
+      }));
+
+      const shouldRefreshForFilter =
+        (patch.isRead !== undefined && currentFilters.unreadOnly) ||
+        (patch.isSaved !== undefined && currentFilters.savedOnly);
+
+      if (shouldRefreshForFilter) {
+        startTransition(() => {
+          router.refresh();
+        });
+      }
+    },
+    [currentFilters.savedOnly, currentFilters.unreadOnly, router],
+  );
+
   return (
     <section className="grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-10">
       <aside className="lg:sticky lg:top-16 lg:self-start">
@@ -177,9 +240,9 @@ export function DashboardShell({
               No items match the current tab and filters.
             </Card>
           ) : (
-            <div className="grid gap-4">
+            <div className="grid gap-4 [content-visibility:auto] [contain-intrinsic-size:1200px]">
               {projected.feedItems.map((item) => (
-                <FeedCard key={item.id} item={item} />
+                <FeedCard key={item.id} item={item} onItemStateChange={handleItemStateChange} />
               ))}
             </div>
           )}

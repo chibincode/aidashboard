@@ -45,8 +45,8 @@ export function DueSourceRefreshBeacon() {
           return;
         }
 
-        const payload = (await response.json()) as { completed?: number };
-        if ((payload.completed ?? 0) > 0) {
+        const payload = (await response.json()) as { completed?: number; createdCount?: number };
+        if ((payload.createdCount ?? 0) > 0) {
           window.dispatchEvent(new CustomEvent(DASHBOARD_REFRESH_START_EVENT));
           startTransition(() => {
             router.refresh();
