@@ -262,6 +262,7 @@ export function buildDashboardSnapshot(args: {
     workspace: args.workspace,
     viewer: args.viewer,
     activeView: projected.activeView,
+    overview: null,
     allItems: uniqueItems,
     feedItems: projected.feedItems,
     sections: projected.sections,

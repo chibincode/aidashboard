@@ -24,6 +24,11 @@ import { getAppSession } from "@/lib/auth-guards";
 import { appConfig } from "@/lib/env";
 import { requireDb } from "@/lib/db";
 import {
+  buildDashboardOverview,
+  createDbDashboardOverviewCacheStore,
+  createMemoryDashboardOverviewCacheStore,
+} from "@/lib/dashboard-overview";
+import {
   entities,
   categories,
   feedItems,
@@ -129,13 +134,29 @@ function toCategoryRecord(row: typeof categories.$inferSelect): CategoryRecord {
   };
 }
 
-export async function getDashboardSnapshot(filters: DashboardFilters): Promise<DashboardSnapshot> {
+export async function getDashboardSnapshot(
+  filters: DashboardFilters,
+  options: { forceOverview?: boolean; now?: Date } = {},
+): Promise<DashboardSnapshot> {
   const viewer = await getViewerContext();
 
   if (!appConfig.hasDatabase) {
     const demoStates = await loadDemoStates();
-    return buildDemoDashboard(viewer, demoStates, filters);
-  }
+    const snapshot = await buildDemoDashboard(viewer, demoStates, filters);
+
+    return {
+      ...snapshot,
+      overview: await buildDashboardOverview({
+        items: snapshot.feedItems,
+        filters,
+      workspaceId: viewer.workspaceId,
+      userId: viewer.userId,
+      now: options.now,
+      force: options.forceOverview,
+      cacheStore: createMemoryDashboardOverviewCacheStore(),
+    }),
+  };
+}
 
   const db = requireDb();
 
@@ -203,7 +224,7 @@ export async function getDashboardSnapshot(filters: DashboardFilters): Promise<D
     itemSourceMap.set(row.feedItemId, [...current, row.sourceId]);
   }
 
-  return buildDashboardSnapshot({
+  const snapshot = buildDashboardSnapshot({
     workspace: workspace ?? defaultWorkspace,
     sources: sourceRows.map((source) => toSourceRecord(source, sourceDefaultTagMap.get(source.id) ?? [])),
     entities: entityRows,
@@ -225,6 +246,19 @@ export async function getDashboardSnapshot(filters: DashboardFilters): Promise<D
     viewer,
     filters,
   });
+
+  return {
+    ...snapshot,
+    overview: await buildDashboardOverview({
+      items: snapshot.feedItems,
+      filters,
+      workspaceId: viewer.workspaceId,
+      userId: viewer.userId,
+      now: options.now,
+      force: options.forceOverview,
+      cacheStore: viewer.isAuthenticated ? createDbDashboardOverviewCacheStore(db) : createMemoryDashboardOverviewCacheStore(),
+    }),
+  };
 }
 
 export async function getAdminSnapshot(): Promise<AdminSnapshot> {

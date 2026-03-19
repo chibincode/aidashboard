@@ -1,7 +1,8 @@
 "use client";
 
-import { startTransition, useCallback, useDeferredValue, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { startTransition, useCallback, useDeferredValue, useEffect, useEffectEvent, useMemo, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
+import { DashboardOverview } from "@/components/dashboard/dashboard-overview";
 import { DashboardFiltersBar } from "@/components/dashboard/filters-bar";
 import { FeedCard } from "@/components/dashboard/feed-card";
 import { DashboardViewTabs } from "@/components/dashboard/view-tabs";
@@ -68,10 +69,20 @@ export function DashboardShell({
   filters: DashboardFilters;
 }) {
   const router = useRouter();
+  const [overviewRetryMessage, setOverviewRetryMessage] = useState<{
+    tone: "neutral" | "success" | "warning";
+    text: string;
+  } | null>(null);
   const [refreshingRenderId, setRefreshingRenderId] = useState<string | null>(null);
   const [itemStateOverrides, setItemStateOverrides] = useState<
     Record<string, Partial<Pick<DashboardItem, "isRead" | "isSaved">>>
   >({});
+  const [overview, setOverview] = useState(snapshot.overview);
+  const [overviewCache, setOverviewCache] = useState<Record<string, DashboardSnapshot["overview"]>>(() => ({
+    [serializeDashboardFilters(filters) || "all"]: snapshot.overview,
+  }));
+  const [overviewLoading, setOverviewLoading] = useState(false);
+  const [overviewRetrying, setOverviewRetrying] = useState(false);
   const initialSearch = useMemo(() => {
     const query = serializeDashboardFilters(filters);
     return query ? `?${query}` : "";
@@ -98,6 +109,8 @@ export function DashboardShell({
     [currentSearch],
   );
   const deferredFilters = useDeferredValue(currentFilters);
+  const currentFiltersKey = useMemo(() => serializeDashboardFilters(currentFilters) || "all", [currentFilters]);
+  const initialFiltersKey = useMemo(() => serializeDashboardFilters(filters) || "all", [filters]);
   const itemsWithOverrides = useMemo(
     () =>
       snapshot.allItems.map((item) => {
@@ -179,6 +192,95 @@ export function DashboardShell({
     };
   }, [snapshot.renderId]);
 
+  const requestOverview = useEffectEvent(async (nextFilters: DashboardFilters, force = false, signal?: AbortSignal) => {
+    const response = await fetch(force ? "/api/dashboard/overview/retry" : "/api/dashboard/overview", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        filters: nextFilters,
+      }),
+      signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to load overview (${response.status}).`);
+    }
+
+    const payload = (await response.json()) as {
+      overview:
+        | (Omit<NonNullable<DashboardSnapshot["overview"]>, "generatedAt"> & {
+            generatedAt: string | null;
+          })
+        | null;
+    };
+
+    if (!payload.overview) {
+      return null;
+    }
+
+    return {
+      ...payload.overview,
+      generatedAt: payload.overview.generatedAt ? new Date(payload.overview.generatedAt) : null,
+    };
+  });
+
+  useEffect(() => {
+    setOverviewCache((current) => {
+      if (current[initialFiltersKey] === snapshot.overview) {
+        return current;
+      }
+
+      return {
+        ...current,
+        [initialFiltersKey]: snapshot.overview,
+      };
+    });
+
+    if (currentFiltersKey === initialFiltersKey) {
+      setOverview(snapshot.overview);
+      setOverviewLoading(false);
+      setOverviewRetryMessage(null);
+      return;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(overviewCache, currentFiltersKey)) {
+      setOverview(overviewCache[currentFiltersKey] ?? null);
+      setOverviewLoading(false);
+      setOverviewRetryMessage(null);
+      return;
+    }
+
+    const controller = new AbortController();
+    setOverviewLoading(true);
+    setOverviewRetryMessage(null);
+
+    void requestOverview(currentFilters, false, controller.signal)
+      .then((nextOverview) => {
+        setOverview(nextOverview);
+        setOverviewCache((current) => ({
+          ...current,
+          [currentFiltersKey]: nextOverview,
+        }));
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) {
+          console.error(error);
+          setOverview(null);
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setOverviewLoading(false);
+        }
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [currentFilters, currentFiltersKey, initialFiltersKey, overviewCache, requestOverview, snapshot.overview]);
+
   const handleItemStateChange = useCallback(
     (itemId: string, patch: Partial<Pick<DashboardItem, "isRead" | "isSaved">>) => {
       setItemStateOverrides((currentOverrides) => ({
@@ -202,6 +304,46 @@ export function DashboardShell({
     [currentFilters.savedOnly, currentFilters.unreadOnly, router],
   );
 
+  function retryOverview() {
+    setOverviewRetrying(true);
+    setOverviewRetryMessage(null);
+
+    void requestOverview(currentFilters, true)
+      .then((nextOverview) => {
+        setOverview(nextOverview);
+        setOverviewCache((current) => ({
+          ...current,
+          [currentFiltersKey]: nextOverview,
+        }));
+        setOverviewRetryMessage(
+          !nextOverview
+            ? {
+                tone: "neutral",
+                text: "No items landed in the last 24 hours for this slice.",
+              }
+            : nextOverview.mode === "ai"
+              ? {
+                  tone: "success",
+                  text: "AI summary refreshed successfully.",
+                }
+              : {
+                  tone: "warning",
+                  text: "AI summary is still unavailable, so the overview stayed on direct stats.",
+                },
+        );
+      })
+      .catch((error) => {
+        console.error(error);
+        setOverviewRetryMessage({
+          tone: "warning",
+          text: "Retry failed. Keeping the previous overview.",
+        });
+      })
+      .finally(() => {
+        setOverviewRetrying(false);
+      });
+  }
+
   return (
     <section className="grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-10">
       <aside className="lg:sticky lg:top-16 lg:self-start">
@@ -220,6 +362,14 @@ export function DashboardShell({
 
       <div className="min-w-0 lg:flex lg:justify-center">
         <div className="w-full lg:max-w-[700px]">
+          <DashboardOverview
+            overview={overview}
+            loading={overviewLoading}
+            retrying={overviewRetrying}
+            retryMessage={overviewRetryMessage}
+            onRetry={overview?.canRetry ? retryOverview : undefined}
+          />
+
           <div className="mb-5 flex items-end justify-between border-b border-black/6 pb-3">
             <h2 className="font-display text-xl font-semibold tracking-tight text-slate-950 md:text-[1.55rem]">
               {activeLabel}

@@ -273,6 +273,28 @@ export const userItemStates = pgTable(
   (table) => [primaryKey({ columns: [table.userId, table.feedItemId] })],
 );
 
+export const dashboardOverviews = pgTable(
+  "dashboard_overviews",
+  {
+    id: text("id").primaryKey().$defaultFn(createId),
+    workspaceId: text("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    windowKey: text("window_key").notNull(),
+    filterKey: text("filter_key").notNull(),
+    itemHash: text("item_hash").notNull(),
+    mode: text("mode").notNull(),
+    payload: jsonb("payload").notNull().default(sql`'{}'::jsonb`),
+    generatedAt: timestamp("generated_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("dashboard_overviews_scope_unique").on(table.workspaceId, table.userId, table.windowKey, table.filterKey)],
+);
+
 export const ingestionRuns = pgTable("ingestion_runs", {
   id: text("id").primaryKey().$defaultFn(createId),
   workspaceId: text("workspace_id")

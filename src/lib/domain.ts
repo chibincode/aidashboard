@@ -244,6 +244,26 @@ export interface DashboardSection {
   items: DashboardItem[];
 }
 
+export interface DashboardOverviewTag {
+  id: string;
+  name: string;
+  color: string;
+}
+
+export interface DashboardOverview {
+  mode: "ai" | "fallback";
+  window: "last-24h";
+  generatedAt: Date | null;
+  headline: string;
+  bullets: string[];
+  itemCount: number;
+  sourceCount: number;
+  topTags: DashboardOverviewTag[];
+  model: string | null;
+  statusText: string;
+  canRetry: boolean;
+}
+
 export interface AdminSnapshot {
   workspace: WorkspaceRecord;
   sources: SourceRecord[];
@@ -258,6 +278,7 @@ export interface DashboardSnapshot {
   workspace: WorkspaceRecord;
   viewer: ViewerContext;
   activeView: DashboardView;
+  overview: DashboardOverview | null;
   allItems: DashboardItem[];
   feedItems: DashboardItem[];
   sections: DashboardSection[];

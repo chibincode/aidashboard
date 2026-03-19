@@ -7,13 +7,29 @@ function takeFirst(value: SearchParamValue) {
   return Array.isArray(value) ? value[0] : value;
 }
 
+export function normalizeDashboardFilters(filters: Partial<DashboardFilters> | null | undefined): DashboardFilters {
+  const sourceType = filters?.sourceType;
+
+  return {
+    view: typeof filters?.view === "string" && filters.view.length > 0 ? filters.view : undefined,
+    entity: typeof filters?.entity === "string" && filters.entity.length > 0 ? filters.entity : undefined,
+    tag: typeof filters?.tag === "string" && filters.tag.length > 0 ? filters.tag : undefined,
+    sourceType:
+      typeof sourceType === "string" && sourceTypes.includes(sourceType as SourceType)
+        ? (sourceType as SourceType)
+        : undefined,
+    unreadOnly: filters?.unreadOnly === true,
+    savedOnly: filters?.savedOnly === true,
+  };
+}
+
 export function parseDashboardFilters(params: Record<string, SearchParamValue>): DashboardFilters {
   const view = takeFirst(params.view);
   const sourceType = takeFirst(params.sourceType);
   const unreadOnly = takeFirst(params.unread) === "1";
   const savedOnly = takeFirst(params.saved) === "1";
 
-  return {
+  return normalizeDashboardFilters({
     view: view || undefined,
     entity: takeFirst(params.entity) || undefined,
     tag: takeFirst(params.tag) || undefined,
@@ -23,7 +39,7 @@ export function parseDashboardFilters(params: Record<string, SearchParamValue>):
         : undefined,
     unreadOnly,
     savedOnly,
-  };
+  });
 }
 
 export function parseDashboardFiltersFromSearchParams(searchParams: URLSearchParams): DashboardFilters {

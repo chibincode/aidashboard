@@ -1,6 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DashboardShell } from "@/components/dashboard/dashboard-shell";
 import type { DashboardFilters, DashboardSnapshot } from "@/lib/domain";
 import { seedCategories } from "@/lib/seed";
@@ -38,6 +38,19 @@ const snapshot: DashboardSnapshot = {
     lastVisitAt: new Date("2026-03-12T12:00:00.000Z"),
   },
   activeView: "all",
+  overview: {
+    mode: "fallback",
+    window: "last-24h",
+    generatedAt: new Date("2026-03-12T12:10:00.000Z"),
+    headline: "2 fresh signals landed in the last 24h.",
+    bullets: ["One", "Two", "Three"],
+    itemCount: 2,
+    sourceCount: 2,
+    topTags: [],
+    model: null,
+    statusText: "AI summary unavailable right now. Showing direct stats from the current slice.",
+    canRetry: true,
+  },
   allItems: [],
   feedItems: [],
   sections: [],
@@ -89,6 +102,31 @@ describe("DashboardShell", () => {
     routerRefresh.mockReset();
     setItemReadAction.mockClear();
     toggleSavedAction.mockClear();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          overview: {
+            mode: "fallback",
+            window: "last-24h",
+            generatedAt: "2026-03-12T12:10:00.000Z",
+            headline: "Updated slice overview.",
+            bullets: ["A", "B", "C"],
+            itemCount: 1,
+            sourceCount: 1,
+            topTags: [],
+            model: null,
+            statusText: "AI summary unavailable right now. Showing direct stats from the current slice.",
+            canRetry: true,
+          },
+        }),
+      }),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("switches tabs immediately and updates the shareable URL without a route navigation", async () => {
@@ -101,6 +139,51 @@ describe("DashboardShell", () => {
     expect(screen.getByRole("button", { name: "Competitor Watch" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("heading", { name: "Competitor Watch" })).toBeInTheDocument();
     expect(window.location.search).toBe("?view=category_competitor_watch");
+  });
+
+  it("renders the overview block when an overview is available", () => {
+    render(<DashboardShell snapshot={snapshot} filters={filters} />);
+
+    expect(screen.getByText("Overview")).toBeInTheDocument();
+    expect(screen.getByText("2 fresh signals landed in the last 24h.")).toBeInTheDocument();
+    expect(screen.getByText("Stats Only")).toBeInTheDocument();
+    expect(screen.getByText("AI summary unavailable right now. Showing direct stats from the current slice.")).toBeInTheDocument();
+  });
+
+  it("hides the overview block when no overview is available", () => {
+    render(
+      <DashboardShell
+        snapshot={{
+          ...snapshot,
+          overview: null,
+        }}
+        filters={filters}
+      />,
+    );
+
+    expect(screen.queryByText("Overview")).not.toBeInTheDocument();
+  });
+
+  it("requests a new overview when the active view changes", async () => {
+    const user = userEvent.setup();
+
+    render(<DashboardShell snapshot={snapshot} filters={filters} />);
+
+    await user.click(screen.getByRole("button", { name: "Competitor Watch" }));
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/dashboard/overview",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          filters: {
+            view: "category_competitor_watch",
+            unreadOnly: false,
+            savedOnly: false,
+          },
+        }),
+      }),
+    );
   });
 
   it("sync-refreshes saved-state changes only when the saved filter is active", async () => {
