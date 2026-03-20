@@ -250,12 +250,20 @@ export interface DashboardOverviewTag {
   color: string;
 }
 
+export interface DashboardOverviewInsight {
+  id: string;
+  summary: string;
+  sourceItemIds: string[];
+}
+
 export interface DashboardOverview {
   mode: "ai" | "fallback";
   window: "last-24h";
   generatedAt: Date | null;
+  stale?: boolean;
+  failureReason?: string | null;
   headline: string;
-  bullets: string[];
+  insights: DashboardOverviewInsight[];
   itemCount: number;
   sourceCount: number;
   topTags: DashboardOverviewTag[];

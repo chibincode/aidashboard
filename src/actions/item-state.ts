@@ -15,6 +15,7 @@ export async function setItemReadAction(feedItemId: string, nextValue: boolean) 
 export async function toggleSavedAction(feedItemId: string, nextValue: boolean) {
   await upsertItemState(feedItemId, {
     isSaved: nextValue,
+    ...(nextValue ? { isRead: true } : {}),
     lastViewedAt: new Date(),
   });
 

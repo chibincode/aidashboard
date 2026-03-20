@@ -16,8 +16,17 @@ import {
   Repeat2,
   Eye,
 } from "lucide-react";
-import type { DashboardItem, SocialMetrics } from "@/lib/domain";
+import type { DashboardItem } from "@/lib/domain";
 import { setItemReadAction, toggleSavedAction } from "@/actions/item-state";
+import {
+  getDashboardItemResolvedSocialCounts,
+  getDashboardItemSourceHandle,
+  getDashboardItemSourceName,
+  isDashboardItemShortVideo,
+  isDashboardItemWebsiteInspiration,
+  isDashboardItemXImage,
+  isDashboardItemXVideo,
+} from "@/components/dashboard/feed-item-meta";
 import { FeedDetailModal } from "@/components/dashboard/feed-detail-modal";
 import { SourceAvatar } from "@/components/dashboard/source-avatar";
 import { resolveXDisplayText } from "@/components/dashboard/x-copy";
@@ -85,60 +94,6 @@ const sourceTypeMeta = {
   },
 } as const;
 
-function parseDurationSeconds(label?: string | null) {
-  if (!label) {
-    return null;
-  }
-
-  const parts = label.split(":").map((part) => Number(part));
-  if (parts.some((part) => Number.isNaN(part))) {
-    return null;
-  }
-
-  if (parts.length === 2) {
-    return parts[0] * 60 + parts[1];
-  }
-
-  if (parts.length === 3) {
-    return parts[0] * 3600 + parts[1] * 60 + parts[2];
-  }
-
-  return null;
-}
-
-function getDisplaySourceName(item: DashboardItem) {
-  return item.authorName ?? item.sourceName.replace(/\s+(YouTube|X)$/i, "");
-}
-
-function getSourceHandle(item: DashboardItem) {
-  if (item.sourceHandle) {
-    return item.sourceHandle.replace(/^@/, "");
-  }
-
-  return getDisplaySourceName(item)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "");
-}
-
-function getFallbackSocialCounts(item: DashboardItem): SocialMetrics {
-  const seed = [...item.id].reduce((total, char, index) => total + char.charCodeAt(0) * (index + 3), 0);
-
-  return {
-    replies: 4 + (seed % 36),
-    reposts: seed % 14,
-    likes: 12 + (seed % 420),
-    views: 400 + (seed % 24_000),
-    bookmarks: 3 + (seed % 360),
-  };
-}
-
-function getResolvedSocialCounts(item: DashboardItem) {
-  return {
-    ...getFallbackSocialCounts(item),
-    ...item.socialMetrics,
-  };
-}
-
 const TagPills = memo(function TagPills({ item }: { item: DashboardItem }) {
   return (
     <div className="flex flex-wrap gap-2">
@@ -165,7 +120,7 @@ type FeedCardActionsProps = {
   onToggleSaved: () => void;
 };
 
-const FeedCardActions = memo(function FeedCardActions({
+export const FeedCardActions = memo(function FeedCardActions({
   className,
   isPending,
   isRead,
@@ -202,12 +157,16 @@ const FeedCardActions = memo(function FeedCardActions({
   );
 });
 
+FeedCardActions.displayName = "FeedCardActions";
+
 export const FeedCard = memo(function FeedCard({
   item,
   onItemStateChange,
+  onOpenDetail,
 }: {
   item: DashboardItem;
   onItemStateChange?: ItemStateChangeHandler;
+  onOpenDetail?: (itemId: string) => void;
 }) {
   const [isPending, startTransition] = useTransition();
   const [detailOpen, setDetailOpen] = useState(false);
@@ -221,20 +180,25 @@ export const FeedCard = memo(function FeedCard({
   const meta = sourceTypeMeta[item.sourceType];
   const isYouTube = item.sourceType === "youtube";
   const isX = item.sourceType === "x";
-  const sourceName = getDisplaySourceName(item);
-  const sourceHandle = getSourceHandle(item);
-  const socialCounts = isX ? getResolvedSocialCounts(item) : null;
+  const sourceName = getDashboardItemSourceName(item);
+  const sourceHandle = getDashboardItemSourceHandle(item);
+  const socialCounts = isX ? getDashboardItemResolvedSocialCounts(item) : null;
   const xDisplayText = isX ? resolveXDisplayText(item) : null;
-  const durationSeconds = parseDurationSeconds(item.mediaLabel);
-  const isShortVideo = isYouTube && (item.canonicalUrl.includes("/shorts/") || (durationSeconds !== null && durationSeconds < 90));
-  const isXVideo = item.sourceType === "x" && item.mediaKind === "video";
-  const isXImage = item.sourceType === "x" && item.mediaKind === "image";
-  const isWebsiteInspiration =
-    Boolean(item.thumbnailUrl) &&
-    (item.sourceType === "website" || item.sourceType === "rss") &&
-    item.tags.some((tag) => tag.slug === "website-inspiration");
+  const isShortVideo = isDashboardItemShortVideo(item);
+  const isXVideo = isDashboardItemXVideo(item);
+  const isXImage = isDashboardItemXImage(item);
+  const isWebsiteInspiration = isDashboardItemWebsiteInspiration(item);
   const actionLabel = isWebsiteInspiration ? "Open review" : meta.actionLabel;
   const intrinsicBlockSize = isYouTube || item.thumbnailUrl ? "520px" : "360px";
+
+  function openDetail() {
+    if (onOpenDetail) {
+      onOpenDetail(item.id);
+      return;
+    }
+
+    setDetailOpen(true);
+  }
 
   useEffect(() => {
     setOptimisticState({
@@ -263,18 +227,27 @@ export const FeedCard = memo(function FeedCard({
   }
 
   function setSavedValue(nextValue: boolean) {
-    const previousValue = optimisticState.isSaved;
+    const previousState = optimisticState;
+    const nextPatch: Partial<Pick<DashboardItem, "isRead" | "isSaved">> = nextValue
+      ? { isSaved: nextValue, isRead: true }
+      : { isSaved: nextValue };
 
-    setOptimisticState((currentState) => ({ ...currentState, isSaved: nextValue }));
-    onItemStateChange?.(item.id, { isSaved: nextValue });
+    setOptimisticState((currentState) => ({
+      ...currentState,
+      ...nextPatch,
+    }));
+    onItemStateChange?.(item.id, nextPatch);
 
     startTransition(async () => {
       setPendingAction("save");
       try {
         await toggleSavedAction(item.id, nextValue);
       } catch {
-        setOptimisticState((currentState) => ({ ...currentState, isSaved: previousValue }));
-        onItemStateChange?.(item.id, { isSaved: previousValue });
+        setOptimisticState(previousState);
+        onItemStateChange?.(item.id, {
+          isSaved: previousState.isSaved,
+          isRead: previousState.isRead,
+        });
       } finally {
         setPendingAction(null);
       }
@@ -309,7 +282,7 @@ export const FeedCard = memo(function FeedCard({
       >
         {isYouTube ? (
           <div>
-            <button type="button" className="block w-full text-left" onClick={() => setDetailOpen(true)}>
+            <button type="button" className="block w-full text-left" onClick={openDetail}>
               <div className="relative overflow-hidden bg-slate-950">
                 {item.thumbnailUrl ? (
                   <img
@@ -342,7 +315,7 @@ export const FeedCard = memo(function FeedCard({
             </button>
 
             <div className="flex items-start gap-3 p-4 md:p-5">
-              <button type="button" className="flex min-w-0 flex-1 items-start gap-3 text-left" onClick={() => setDetailOpen(true)}>
+              <button type="button" className="flex min-w-0 flex-1 items-start gap-3 text-left" onClick={openDetail}>
                 <SourceAvatar
                   src={item.authorAvatarUrl}
                   name={sourceName}
@@ -379,7 +352,7 @@ export const FeedCard = memo(function FeedCard({
         ) : isX ? (
           <div className="p-4 md:p-5">
             <div className="flex items-start justify-between gap-3">
-              <button type="button" className="flex min-w-0 flex-1 items-start gap-3 text-left" onClick={() => setDetailOpen(true)}>
+              <button type="button" className="flex min-w-0 flex-1 items-start gap-3 text-left" onClick={openDetail}>
                 <SourceAvatar
                   src={item.authorAvatarUrl}
                   name={sourceName}
@@ -426,7 +399,7 @@ export const FeedCard = memo(function FeedCard({
               <button
                 type="button"
                 className="mt-4 block w-full overflow-hidden rounded-[22px] border border-black/8 bg-slate-950 text-left shadow-[0_20px_48px_-36px_rgba(15,23,42,0.55)] transition hover:shadow-[0_22px_56px_-34px_rgba(15,23,42,0.62)]"
-                onClick={() => setDetailOpen(true)}
+                onClick={openDetail}
               >
                 <div className="relative">
                   <img
@@ -482,7 +455,7 @@ export const FeedCard = memo(function FeedCard({
           </div>
         ) : isWebsiteInspiration ? (
           <div>
-            <button type="button" className="block w-full text-left" onClick={() => setDetailOpen(true)}>
+            <button type="button" className="block w-full text-left" onClick={openDetail}>
               <div className="relative overflow-hidden bg-slate-100">
                 <img
                   src={item.thumbnailUrl ?? ""}
@@ -509,7 +482,7 @@ export const FeedCard = memo(function FeedCard({
 
             <div className="p-4 md:p-5">
               <div className="flex gap-4">
-                <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setDetailOpen(true)}>
+                <button type="button" className="min-w-0 flex-1 text-left" onClick={openDetail}>
                   <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
                     <span className="text-slate-400">{meta.sourceLabel}</span>
                     <span>{sourceName}</span>
@@ -539,7 +512,7 @@ export const FeedCard = memo(function FeedCard({
         ) : (
           <div className="p-4">
             <div className="flex gap-4">
-              <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setDetailOpen(true)}>
+              <button type="button" className="min-w-0 flex-1 text-left" onClick={openDetail}>
                 <div className="flex flex-wrap items-center gap-2">
                   <span
                     className={cn(

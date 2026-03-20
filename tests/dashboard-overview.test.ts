@@ -6,6 +6,7 @@ import {
   buildOverviewItemHash,
   createDbDashboardOverviewCacheStore,
   getOverviewCandidates,
+  resolveAiOverviewInsights,
 } from "@/lib/dashboard-overview";
 import { seedTags } from "@/lib/seed";
 
@@ -71,14 +72,23 @@ describe("dashboard overview", () => {
     const items = [createItem({ id: "fresh" })];
     const cacheStore = createMemoryCacheStore();
     const generateAiOverview = vi.fn(async () => ({
-      mode: "ai" as const,
-      headline: "One strong product move surfaced.",
-      bullets: ["Bullet one", "Bullet two", "Bullet three"],
-      itemCount: 1,
-      sourceCount: 1,
-      topTags: [],
-      model: "minimax/minimax-m2.5-20260211",
-      statusText: "AI summary generated with minimax/minimax-m2.5-20260211.",
+      payload: {
+        mode: "ai" as const,
+        stale: false,
+        failureReason: null,
+        headline: "One strong product move surfaced.",
+        insights: [
+          { id: "overview-insight-1", summary: "Bullet one", sourceItemIds: ["fresh"] },
+          { id: "overview-insight-2", summary: "Bullet two", sourceItemIds: ["fresh"] },
+          { id: "overview-insight-3", summary: "Bullet three", sourceItemIds: ["fresh"] },
+        ],
+        itemCount: 1,
+        sourceCount: 1,
+        topTags: [],
+        model: "minimax/minimax-m2.5-20260211",
+        statusText: "AI summary generated with minimax/minimax-m2.5-20260211.",
+      },
+      failureReason: null,
     }));
 
     await buildDashboardOverview({
@@ -118,14 +128,23 @@ describe("dashboard overview", () => {
     const changedItems = [createItem({ id: "fresh", title: "Updated signal title" })];
     const cacheStore = createMemoryCacheStore();
     const generateAiOverview = vi.fn(async () => ({
-      mode: "ai" as const,
-      headline: "Signal changed.",
-      bullets: ["Bullet one", "Bullet two", "Bullet three"],
-      itemCount: 1,
-      sourceCount: 1,
-      topTags: [],
-      model: "minimax/minimax-m2.5-20260211",
-      statusText: "AI summary generated with minimax/minimax-m2.5-20260211.",
+      payload: {
+        mode: "ai" as const,
+        stale: false,
+        failureReason: null,
+        headline: "Signal changed.",
+        insights: [
+          { id: "overview-insight-1", summary: "Bullet one", sourceItemIds: ["fresh"] },
+          { id: "overview-insight-2", summary: "Bullet two", sourceItemIds: ["fresh"] },
+          { id: "overview-insight-3", summary: "Bullet three", sourceItemIds: ["fresh"] },
+        ],
+        itemCount: 1,
+        sourceCount: 1,
+        topTags: [],
+        model: "minimax/minimax-m2.5-20260211",
+        statusText: "AI summary generated with minimax/minimax-m2.5-20260211.",
+      },
+      failureReason: null,
     }));
 
     expect(buildOverviewItemHash(originalItems)).not.toBe(buildOverviewItemHash(changedItems));
@@ -162,15 +181,116 @@ describe("dashboard overview", () => {
       workspaceId: "workspace_1",
       userId: "user_1",
       now: new Date("2026-03-19T12:00:00.000Z"),
-      generateAiOverview: vi.fn().mockResolvedValue(null),
+      generateAiOverview: vi.fn().mockResolvedValue({
+        payload: null,
+        failureReason: "OpenRouter took too long to return a usable summary.",
+      }),
     });
 
     expect(overview).not.toBeNull();
     expect(overview?.mode).toBe("fallback");
     expect(overview?.canRetry).toBe(true);
-    expect(overview?.bullets).toHaveLength(3);
+    expect(overview?.insights).toHaveLength(3);
     expect(overview?.itemCount).toBe(2);
     expect(overview?.statusText).toContain("AI summary unavailable");
+    expect(overview?.failureReason).toContain("OpenRouter took too long");
+  });
+
+  it("keeps the last successful AI overview when a forced refresh times out", async () => {
+    const now = new Date("2026-03-19T12:00:00.000Z");
+    const items = [createItem({ id: "fresh_1" })];
+    const cacheStore = createMemoryCacheStore();
+    const previousGeneratedAt = new Date("2026-03-19T11:50:00.000Z");
+
+    await cacheStore.save({
+      workspaceId: "workspace_1",
+      userId: "user_1",
+      filterKey: "all",
+      windowKey: "last-24h",
+      itemHash: buildOverviewItemHash(items),
+      generatedAt: previousGeneratedAt,
+      payload: {
+        mode: "ai",
+        stale: false,
+        headline: "Cached AI headline",
+        insights: [
+          { id: "overview-insight-1", summary: "Insight one", sourceItemIds: ["fresh_1"] },
+          { id: "overview-insight-2", summary: "Insight two", sourceItemIds: ["fresh_1"] },
+          { id: "overview-insight-3", summary: "Insight three", sourceItemIds: ["fresh_1"] },
+        ],
+        itemCount: 1,
+        sourceCount: 1,
+        topTags: [],
+        model: "minimax/minimax-m2.5-20260211",
+        statusText: "AI summary generated for the current slice.",
+      },
+    });
+
+    const overview = await buildDashboardOverview({
+      items,
+      filters: {},
+      workspaceId: "workspace_1",
+      userId: "user_1",
+      now,
+      force: true,
+      cacheStore,
+      generateAiOverview: vi.fn().mockResolvedValue({
+        payload: null,
+        failureReason: "The model started answering, but its structured response was cut off before the summary finished.",
+      }),
+    });
+
+    expect(overview).not.toBeNull();
+    expect(overview?.mode).toBe("ai");
+    expect(overview?.stale).toBe(true);
+    expect(overview?.headline).toBe("Cached AI headline");
+    expect(overview?.generatedAt).toEqual(previousGeneratedAt);
+    expect(overview?.statusText).toContain("last successful AI summary");
+    expect(cacheStore.save).toHaveBeenCalledTimes(1);
+  });
+
+  it("maps valid AI citations into source item ids", () => {
+    const inputItems = [
+      { ref: "S1", item: createItem({ id: "item_alpha" }) },
+      { ref: "S2", item: createItem({ id: "item_beta" }) },
+      { ref: "S3", item: createItem({ id: "item_gamma" }) },
+    ];
+
+    const insights = resolveAiOverviewInsights(
+      inputItems,
+      JSON.stringify({
+        headline: "Signal headline",
+        insights: [
+          { summary: "Insight one", citations: ["S1", "S2"] },
+          { summary: "Insight two", citations: ["S3"] },
+          { summary: "Insight three", citations: ["S2", "S1"] },
+        ],
+      }),
+    );
+
+    expect(insights).toEqual([
+      { id: "overview-insight-1", summary: "Insight one", sourceItemIds: ["item_alpha", "item_beta"] },
+      { id: "overview-insight-2", summary: "Insight two", sourceItemIds: ["item_gamma"] },
+      { id: "overview-insight-3", summary: "Insight three", sourceItemIds: ["item_beta", "item_alpha"] },
+    ]);
+  });
+
+  it("rejects AI insights when citations do not resolve to real items", () => {
+    const inputItems = [{ ref: "S1", item: createItem({ id: "item_alpha" }) }];
+
+    const insights = resolveAiOverviewInsights(
+      inputItems,
+      JSON.stringify({
+        headline: "Signal headline",
+        insights: [
+          { summary: "Insight one", citations: ["S9"] },
+          { summary: "Insight two", citations: ["S1"] },
+          { summary: "Insight three", citations: ["S1"] },
+        ],
+      }),
+    );
+
+    expect(insights).toBeNull();
   });
 
   it("ignores dashboard overview cache read errors", async () => {
@@ -218,7 +338,11 @@ describe("dashboard overview", () => {
         payload: {
           mode: "fallback",
           headline: "Fallback headline",
-          bullets: ["Bullet one", "Bullet two", "Bullet three"],
+          insights: [
+            { id: "overview-insight-1", summary: "Bullet one", sourceItemIds: [] },
+            { id: "overview-insight-2", summary: "Bullet two", sourceItemIds: [] },
+            { id: "overview-insight-3", summary: "Bullet three", sourceItemIds: [] },
+          ],
           itemCount: 3,
           sourceCount: 2,
           topTags: [],

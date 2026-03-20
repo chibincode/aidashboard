@@ -19,7 +19,11 @@ describe("dashboard overview routes", () => {
         window: "last-24h",
         generatedAt: new Date("2026-03-19T12:00:00.000Z"),
         headline: "2 fresh signals landed in the last 24h.",
-        bullets: ["One", "Two", "Three"],
+        insights: [
+          { id: "overview-insight-1", summary: "One", sourceItemIds: [] },
+          { id: "overview-insight-2", summary: "Two", sourceItemIds: [] },
+          { id: "overview-insight-3", summary: "Three", sourceItemIds: [] },
+        ],
         itemCount: 2,
         sourceCount: 1,
         topTags: [],

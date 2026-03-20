@@ -43,7 +43,11 @@ const snapshot: DashboardSnapshot = {
     window: "last-24h",
     generatedAt: new Date("2026-03-12T12:10:00.000Z"),
     headline: "2 fresh signals landed in the last 24h.",
-    bullets: ["One", "Two", "Three"],
+    insights: [
+      { id: "overview-insight-1", summary: "One", sourceItemIds: [] },
+      { id: "overview-insight-2", summary: "Two", sourceItemIds: [] },
+      { id: "overview-insight-3", summary: "Three", sourceItemIds: [] },
+    ],
     itemCount: 2,
     sourceCount: 2,
     topTags: [],
@@ -112,7 +116,11 @@ describe("DashboardShell", () => {
             window: "last-24h",
             generatedAt: "2026-03-12T12:10:00.000Z",
             headline: "Updated slice overview.",
-            bullets: ["A", "B", "C"],
+            insights: [
+              { id: "overview-insight-1", summary: "A", sourceItemIds: [] },
+              { id: "overview-insight-2", summary: "B", sourceItemIds: [] },
+              { id: "overview-insight-3", summary: "C", sourceItemIds: [] },
+            ],
             itemCount: 1,
             sourceCount: 1,
             topTags: [],
@@ -148,6 +156,7 @@ describe("DashboardShell", () => {
     expect(screen.getByText("2 fresh signals landed in the last 24h.")).toBeInTheDocument();
     expect(screen.getByText("Stats Only")).toBeInTheDocument();
     expect(screen.getByText("AI summary unavailable right now. Showing direct stats from the current slice.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /View .*more source/i })).not.toBeInTheDocument();
   });
 
   it("hides the overview block when no overview is available", () => {
@@ -184,6 +193,68 @@ describe("DashboardShell", () => {
         }),
       }),
     );
+  });
+
+  it("keeps the previous AI card visible when refresh reuses the last successful summary", async () => {
+    const user = userEvent.setup();
+    const aiSnapshot: DashboardSnapshot = {
+      ...snapshot,
+      overview: {
+        mode: "ai",
+        window: "last-24h",
+        generatedAt: new Date("2026-03-12T12:10:00.000Z"),
+        headline: "Fresh AI summary.",
+        insights: [
+          { id: "overview-insight-1", summary: "Insight A", sourceItemIds: ["item_1"] },
+          { id: "overview-insight-2", summary: "Insight B", sourceItemIds: ["item_1"] },
+          { id: "overview-insight-3", summary: "Insight C", sourceItemIds: ["item_1"] },
+        ],
+        itemCount: 1,
+        sourceCount: 1,
+        topTags: [],
+        model: "minimax/minimax-m2.5-20260211",
+        statusText: "AI summary generated for the current slice.",
+        canRetry: true,
+      },
+      allItems: [buildDashboardItem()],
+    };
+
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        overview: {
+          mode: "ai",
+          stale: true,
+          window: "last-24h",
+          generatedAt: "2026-03-12T12:10:00.000Z",
+          headline: "Fresh AI summary.",
+          insights: [
+            { id: "overview-insight-1", summary: "Insight A", sourceItemIds: ["item_1"] },
+            { id: "overview-insight-2", summary: "Insight B", sourceItemIds: ["item_1"] },
+            { id: "overview-insight-3", summary: "Insight C", sourceItemIds: ["item_1"] },
+          ],
+          itemCount: 1,
+          sourceCount: 1,
+          topTags: [],
+          model: "minimax/minimax-m2.5-20260211",
+          statusText: "OpenRouter did not finish a fresh summary in time. Showing the last successful AI summary.",
+          canRetry: true,
+        },
+      }),
+    } as Response);
+
+    render(<DashboardShell snapshot={aiSnapshot} filters={filters} />);
+
+    await user.click(screen.getByRole("button", { name: "Refresh AI" }));
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/dashboard/overview/retry",
+      expect.objectContaining({
+        method: "POST",
+      }),
+    );
+    expect(screen.getByText("Fresh AI summary.")).toBeInTheDocument();
+    expect(screen.queryByText("Stats Only")).not.toBeInTheDocument();
   });
 
   it("sync-refreshes saved-state changes only when the saved filter is active", async () => {
@@ -246,5 +317,109 @@ describe("DashboardShell", () => {
     expect(screen.queryByRole("heading", { name: "Unread item" })).not.toBeInTheDocument();
     expect(setItemReadAction).toHaveBeenCalledWith("item_unread", true);
     expect(routerRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("marks items as read when they are saved from an unread-only view", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState({}, "", "/?unread=1");
+    const unreadSnapshot: DashboardSnapshot = {
+      ...snapshot,
+      allItems: [
+        buildDashboardItem({
+          id: "item_save_and_read",
+          title: "Unread item to save",
+          canonicalUrl: "https://example.com/unread-item-to-save",
+          isRead: false,
+          isSaved: false,
+        }),
+      ],
+      feedItems: [],
+      sections: [],
+    };
+
+    render(<DashboardShell snapshot={unreadSnapshot} filters={{ unreadOnly: true }} />);
+
+    const unreadHeading = screen.getByRole("heading", { name: "Unread item to save" });
+    const unreadCard = unreadHeading.closest(".group");
+    expect(unreadHeading).toBeInTheDocument();
+    expect(unreadCard).not.toBeNull();
+
+    await user.click(within(unreadCard as HTMLElement).getByRole("button", { name: "Save" }));
+
+    expect(screen.queryByRole("heading", { name: "Unread item to save" })).not.toBeInTheDocument();
+    expect(toggleSavedAction).toHaveBeenCalledWith("item_save_and_read", true);
+    expect(routerRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens feed detail from overview evidence and can expand additional sources", async () => {
+    const user = userEvent.setup();
+    const aiSnapshot: DashboardSnapshot = {
+      ...snapshot,
+      overview: {
+        mode: "ai",
+        window: "last-24h",
+        generatedAt: new Date("2026-03-12T12:10:00.000Z"),
+        headline: "Evidence-backed AI summary.",
+        insights: [
+          {
+            id: "overview-insight-1",
+            summary: "Agents are becoming a stronger design surface.",
+            sourceItemIds: ["item_a", "item_b", "item_c"],
+          },
+          {
+            id: "overview-insight-2",
+            summary: "Infrastructure tools are becoming more local-first.",
+            sourceItemIds: ["item_b"],
+          },
+          {
+            id: "overview-insight-3",
+            summary: "Developer UX keeps moving toward control and observability.",
+            sourceItemIds: ["item_c"],
+          },
+        ],
+        itemCount: 3,
+        sourceCount: 2,
+        topTags: [],
+        model: "minimax/minimax-m2.5-20260211",
+        statusText: "AI summary generated for the current slice.",
+        canRetry: true,
+      },
+      allItems: [
+        buildDashboardItem({
+          id: "item_a",
+          title: "OpenClaw ships memory import",
+          canonicalUrl: "https://example.com/openclaw",
+          authorAvatarUrl: "https://example.com/avatars/openclaw.png",
+          sourceName: "OpenClaw",
+        }),
+        buildDashboardItem({
+          id: "item_b",
+          title: "LiteParse launches local parser",
+          canonicalUrl: "https://example.com/liteparse",
+          sourceName: "LiteParse",
+        }),
+        buildDashboardItem({
+          id: "item_c",
+          title: "Cursor updates composer controls",
+          canonicalUrl: "https://example.com/cursor",
+          sourceName: "Cursor",
+        }),
+      ],
+    };
+
+    render(<DashboardShell snapshot={aiSnapshot} filters={filters} />);
+
+    expect(screen.getByAltText("Author avatar")).toBeInTheDocument();
+
+    const firstInsightCard = screen.getByText("Agents are becoming a stronger design surface.").closest("article");
+    expect(firstInsightCard).not.toBeNull();
+
+    await user.click(within(firstInsightCard as HTMLElement).getByRole("button", { name: /View 1 more source/i }));
+
+    await user.click(within(firstInsightCard as HTMLElement).getByRole("button", { name: /LiteParse launches local parser/i }));
+
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toBeInTheDocument();
+    expect(within(dialog).getByText("LiteParse launches local parser")).toBeInTheDocument();
   });
 });

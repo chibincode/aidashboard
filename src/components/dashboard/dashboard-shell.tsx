@@ -2,9 +2,18 @@
 
 import { startTransition, useCallback, useDeferredValue, useEffect, useEffectEvent, useMemo, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
+import { setItemReadAction, toggleSavedAction } from "@/actions/item-state";
+import { FeedDetailModal } from "@/components/dashboard/feed-detail-modal";
+import {
+  getDashboardItemResolvedSocialCounts,
+  getDashboardItemSourceHandle,
+  getDashboardItemSourceName,
+  isDashboardItemShortVideo,
+  isDashboardItemXVideo,
+} from "@/components/dashboard/feed-item-meta";
 import { DashboardOverview } from "@/components/dashboard/dashboard-overview";
 import { DashboardFiltersBar } from "@/components/dashboard/filters-bar";
-import { FeedCard } from "@/components/dashboard/feed-card";
+import { FeedCard, FeedCardActions } from "@/components/dashboard/feed-card";
 import { DashboardViewTabs } from "@/components/dashboard/view-tabs";
 import { getDashboardViewLabel } from "@/components/dashboard/view-meta";
 import { Card } from "@/components/ui/card";
@@ -83,6 +92,8 @@ export function DashboardShell({
   }));
   const [overviewLoading, setOverviewLoading] = useState(false);
   const [overviewRetrying, setOverviewRetrying] = useState(false);
+  const [detailItemId, setDetailItemId] = useState<string | null>(null);
+  const [detailPendingAction, setDetailPendingAction] = useState<"read" | "save" | null>(null);
   const initialSearch = useMemo(() => {
     const query = serializeDashboardFilters(filters);
     return query ? `?${query}` : "";
@@ -119,6 +130,7 @@ export function DashboardShell({
       }),
     [itemStateOverrides, snapshot.allItems],
   );
+  const itemsById = useMemo(() => new Map(itemsWithOverrides.map((item) => [item.id, item] as const)), [itemsWithOverrides]);
   const activeCategories = useMemo(() => getActiveDashboardCategories(snapshot.categories), [snapshot.categories]);
   const filteredItems = useMemo(
     () => filterDashboardItems(itemsWithOverrides, deferredFilters),
@@ -147,10 +159,20 @@ export function DashboardShell({
   );
   const activeLabel = getDashboardViewLabel(projected.activeView, projected.categories);
   const isBackgroundRefreshing = refreshingRenderId === snapshot.renderId;
+  const selectedDetailItem = useMemo(
+    () => (detailItemId ? itemsById.get(detailItemId) ?? null : null),
+    [detailItemId, itemsById],
+  );
 
   useEffect(() => {
     setItemStateOverrides({});
   }, [snapshot.renderId]);
+
+  useEffect(() => {
+    if (detailItemId && !selectedDetailItem) {
+      setDetailItemId(null);
+    }
+  }, [detailItemId, selectedDetailItem]);
 
   function syncUrl(nextFilters: DashboardFilters, mode: "push" | "replace" = "push") {
     const query = serializeDashboardFilters(nextFilters);
@@ -281,16 +303,18 @@ export function DashboardShell({
     };
   }, [currentFilters, currentFiltersKey, initialFiltersKey, overviewCache, requestOverview, snapshot.overview]);
 
-  const handleItemStateChange = useCallback(
-    (itemId: string, patch: Partial<Pick<DashboardItem, "isRead" | "isSaved">>) => {
-      setItemStateOverrides((currentOverrides) => ({
-        ...currentOverrides,
-        [itemId]: {
-          ...currentOverrides[itemId],
-          ...patch,
-        },
-      }));
+  const applyItemStatePatch = useCallback((itemId: string, patch: Partial<Pick<DashboardItem, "isRead" | "isSaved">>) => {
+    setItemStateOverrides((currentOverrides) => ({
+      ...currentOverrides,
+      [itemId]: {
+        ...currentOverrides[itemId],
+        ...patch,
+      },
+    }));
+  }, []);
 
+  const refreshForFilterPatch = useCallback(
+    (patch: Partial<Pick<DashboardItem, "isRead" | "isSaved">>) => {
       const shouldRefreshForFilter =
         (patch.isRead !== undefined && currentFilters.unreadOnly) ||
         (patch.isSaved !== undefined && currentFilters.savedOnly);
@@ -302,6 +326,52 @@ export function DashboardShell({
       }
     },
     [currentFilters.savedOnly, currentFilters.unreadOnly, router],
+  );
+
+  const handleItemStateChange = useCallback(
+    (itemId: string, patch: Partial<Pick<DashboardItem, "isRead" | "isSaved">>) => {
+      applyItemStatePatch(itemId, patch);
+      refreshForFilterPatch(patch);
+    },
+    [applyItemStatePatch, refreshForFilterPatch],
+  );
+
+  const openDetail = useCallback((itemId: string) => {
+    setDetailItemId(itemId);
+  }, []);
+
+  const toggleDetailItemState = useCallback(
+    async (kind: "read" | "save") => {
+      if (!selectedDetailItem) {
+        return;
+      }
+
+      const nextValue = kind === "read" ? !selectedDetailItem.isRead : !selectedDetailItem.isSaved;
+      const previousRead = selectedDetailItem.isRead;
+      const previousSaved = selectedDetailItem.isSaved;
+      const patch =
+        kind === "read" ? { isRead: nextValue } : nextValue ? { isSaved: true, isRead: true } : { isSaved: false };
+
+      applyItemStatePatch(selectedDetailItem.id, patch);
+      refreshForFilterPatch(patch);
+      setDetailPendingAction(kind);
+
+      try {
+        if (kind === "read") {
+          await setItemReadAction(selectedDetailItem.id, nextValue);
+        } else {
+          await toggleSavedAction(selectedDetailItem.id, nextValue);
+        }
+      } catch {
+        applyItemStatePatch(
+          selectedDetailItem.id,
+          kind === "read" ? { isRead: previousRead } : { isSaved: previousSaved, isRead: previousRead },
+        );
+      } finally {
+        setDetailPendingAction(null);
+      }
+    },
+    [applyItemStatePatch, refreshForFilterPatch, selectedDetailItem],
   );
 
   function retryOverview() {
@@ -321,11 +391,16 @@ export function DashboardShell({
                 tone: "neutral",
                 text: "No items landed in the last 24 hours for this slice.",
               }
-            : nextOverview.mode === "ai"
+            : nextOverview.mode === "ai" && !nextOverview.stale
               ? {
                   tone: "success",
                   text: "AI summary refreshed successfully.",
                 }
+              : nextOverview.mode === "ai" && nextOverview.stale
+                ? {
+                    tone: "neutral",
+                    text: "OpenRouter did not finish a fresh summary in time, so the last successful AI summary is still shown.",
+                  }
               : {
                   tone: "warning",
                   text: "AI summary is still unavailable, so the overview stayed on direct stats.",
@@ -364,10 +439,12 @@ export function DashboardShell({
         <div className="w-full lg:max-w-[700px]">
           <DashboardOverview
             overview={overview}
+            itemLookup={itemsById}
             loading={overviewLoading}
             retrying={overviewRetrying}
             retryMessage={overviewRetryMessage}
             onRetry={overview?.canRetry ? retryOverview : undefined}
+            onOpenEvidenceItem={openDetail}
           />
 
           <div className="mb-5 flex items-end justify-between border-b border-black/6 pb-3">
@@ -392,12 +469,35 @@ export function DashboardShell({
           ) : (
             <div className="grid gap-4 [content-visibility:auto] [contain-intrinsic-size:1200px]">
               {projected.feedItems.map((item) => (
-                <FeedCard key={item.id} item={item} onItemStateChange={handleItemStateChange} />
+                <FeedCard key={item.id} item={item} onItemStateChange={handleItemStateChange} onOpenDetail={openDetail} />
               ))}
             </div>
           )}
         </div>
       </div>
+
+      {selectedDetailItem ? (
+        <FeedDetailModal
+          open
+          onClose={() => setDetailItemId(null)}
+          item={selectedDetailItem}
+          sourceName={getDashboardItemSourceName(selectedDetailItem)}
+          sourceHandle={getDashboardItemSourceHandle(selectedDetailItem)}
+          socialCounts={selectedDetailItem.sourceType === "x" ? getDashboardItemResolvedSocialCounts(selectedDetailItem) : null}
+          isShortVideo={isDashboardItemShortVideo(selectedDetailItem)}
+          isXVideo={isDashboardItemXVideo(selectedDetailItem)}
+          actionButtons={
+            <FeedCardActions
+              isPending={detailPendingAction !== null}
+              isRead={selectedDetailItem.isRead}
+              isSaved={selectedDetailItem.isSaved}
+              pendingAction={detailPendingAction}
+              onToggleRead={() => void toggleDetailItemState("read")}
+              onToggleSaved={() => void toggleDetailItemState("save")}
+            />
+          }
+        />
+      ) : null}
     </section>
   );
 }
