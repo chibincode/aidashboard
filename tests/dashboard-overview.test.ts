@@ -249,6 +249,57 @@ describe("dashboard overview", () => {
     expect(cacheStore.save).toHaveBeenCalledTimes(1);
   });
 
+  it("falls back to a fresh stats overview when the cached AI summary evidence cannot resolve to current items", async () => {
+    const now = new Date("2026-03-19T12:00:00.000Z");
+    const items = [
+      createItem({ id: "fresh_1", isRead: false, tags: [seedTags[0]] }),
+      createItem({ id: "fresh_2", sourceName: "OpenAI", tags: [seedTags[1]] }),
+    ];
+    const cacheStore = createMemoryCacheStore();
+
+    await cacheStore.save({
+      workspaceId: "workspace_1",
+      userId: "user_1",
+      filterKey: "all",
+      windowKey: "last-24h",
+      itemHash: buildOverviewItemHash(items),
+      generatedAt: new Date("2026-03-10T11:50:00.000Z"),
+      payload: {
+        mode: "ai",
+        stale: false,
+        headline: "Cached AI headline",
+        insights: [
+          { id: "overview-insight-1", summary: "Insight one", sourceItemIds: ["legacy_1"] },
+          { id: "overview-insight-2", summary: "Insight two", sourceItemIds: ["legacy_2"] },
+          { id: "overview-insight-3", summary: "Insight three", sourceItemIds: ["legacy_3"] },
+        ],
+        itemCount: 2,
+        sourceCount: 2,
+        topTags: [],
+        model: "minimax/minimax-m2.5-20260211",
+        statusText: "AI summary generated for the current slice.",
+      },
+    });
+
+    const overview = await buildDashboardOverview({
+      items,
+      filters: {},
+      workspaceId: "workspace_1",
+      userId: "user_1",
+      now,
+      cacheStore,
+      generateAiOverview: vi.fn().mockResolvedValue({
+        payload: null,
+        failureReason: "OpenRouter took too long to return a usable summary.",
+      }),
+    });
+
+    expect(overview).not.toBeNull();
+    expect(overview?.mode).toBe("fallback");
+    expect(overview?.headline).toBe("2 fresh signals landed in the last 24h.");
+    expect(overview?.insights.every((insight) => insight.sourceItemIds.length > 0)).toBe(true);
+  });
+
   it("maps valid AI citations into source item ids", () => {
     const inputItems = [
       { ref: "S1", item: createItem({ id: "item_alpha" }) },

@@ -15,12 +15,13 @@ import { serializeDashboardFilters } from "@/lib/filters";
 
 const LAST_24_HOURS_MS = 24 * 60 * 60 * 1000;
 const OVERVIEW_WINDOW = "last-24h" as const;
-const DEFAULT_PRIMARY_MODEL = "minimax/minimax-m2.5";
-const DEFAULT_FALLBACK_MODEL = "minimax/minimax-m2.5";
+const DEFAULT_PRIMARY_MODEL = "minimax/minimax-m2.7";
+const DEFAULT_FALLBACK_MODEL = "minimax/minimax-m2.7";
 const AI_INPUT_LIMIT = 12;
 const AI_MAX_TOKENS = 700;
 const EXCERPT_CHAR_LIMIT = 160;
 const PROVIDER_TIMEOUT_MS = 20_000;
+const FALLBACK_EVIDENCE_LIMIT = 4;
 
 type DashboardDb = ReturnType<typeof requireDb>;
 
@@ -273,6 +274,57 @@ function toOverviewTagList(items: DashboardItem[]) {
     .map(({ count: _count, ...tag }) => tag);
 }
 
+function takeEvidenceItemIds(
+  items: DashboardItem[],
+  limit = FALLBACK_EVIDENCE_LIMIT,
+  distinctBy?: (item: DashboardItem) => string,
+) {
+  const itemIds: string[] = [];
+  const seenKeys = distinctBy ? new Set<string>() : null;
+
+  for (const item of items) {
+    if (distinctBy && seenKeys) {
+      const key = distinctBy(item);
+      if (seenKeys.has(key)) {
+        continue;
+      }
+      seenKeys.add(key);
+    }
+
+    itemIds.push(item.id);
+
+    if (itemIds.length >= limit) {
+      break;
+    }
+  }
+
+  return itemIds;
+}
+
+function getFallbackPatternEvidenceItemIds(
+  items: DashboardItem[],
+  topTags: DashboardOverviewTag[],
+  topSourceType: DashboardItem["sourceType"] | null,
+) {
+  if (topTags.length > 0) {
+    const topTagIds = new Set(topTags.slice(0, 2).map((tag) => tag.id));
+    return takeEvidenceItemIds(items.filter((item) => item.tags.some((tag) => topTagIds.has(tag.id))));
+  }
+
+  if (topSourceType) {
+    return takeEvidenceItemIds(items.filter((item) => item.sourceType === topSourceType));
+  }
+
+  return takeEvidenceItemIds(items);
+}
+
+function hasTraceableAiEvidence(payload: StoredOverviewPayload, availableItemIds: ReadonlySet<string>) {
+  return (
+    payload.mode !== "ai" ||
+    payload.insights.every((insight) => insight.sourceItemIds.some((itemId) => availableItemIds.has(itemId)))
+  );
+}
+
 function buildOverviewFromPayload(
   payload: StoredOverviewPayload,
   generatedAt: Date | null,
@@ -387,11 +439,17 @@ export function buildFallbackOverview(items: DashboardItem[], failureReason: str
     return counts;
   }, {});
   const topSourceTypeEntry = Object.entries(sourceTypeCounts).sort((left, right) => right[1] - left[1])[0];
+  const topSourceType = (topSourceTypeEntry?.[0] as DashboardItem["sourceType"] | undefined) ?? null;
   const topSourceTypeText = topSourceTypeEntry
     ? `${formatSourceTypeLabel(topSourceTypeEntry[0] as DashboardItem["sourceType"])} leads with ${topSourceTypeEntry[1]} ${pluralize(topSourceTypeEntry[1], "item")}.`
     : "No source type stands out in this slice yet.";
   const tagSummary =
     topTags.length > 0 ? `Top tags: ${topTags.map((tag) => tag.name).join(", ")}.` : "No dominant tags surfaced in this window.";
+  const volumeEvidenceItemIds = takeEvidenceItemIds(items, FALLBACK_EVIDENCE_LIMIT, (item) => item.sourceName);
+  const attentionEvidenceItemIds = takeEvidenceItemIds(
+    unreadCount > 0 ? items.filter((item) => !item.isRead) : items,
+  );
+  const patternEvidenceItemIds = getFallbackPatternEvidenceItemIds(items, topTags, topSourceType);
 
   return {
     mode: "fallback",
@@ -405,7 +463,7 @@ export function buildFallbackOverview(items: DashboardItem[], failureReason: str
       {
         id: "overview-volume",
         summary: `${sourceCount} ${pluralize(sourceCount, "source")} contributed to this slice.`,
-        sourceItemIds: [],
+        sourceItemIds: volumeEvidenceItemIds,
       },
       {
         id: "overview-attention",
@@ -413,12 +471,12 @@ export function buildFallbackOverview(items: DashboardItem[], failureReason: str
           unreadCount > 0
             ? `${unreadCount} ${pluralize(unreadCount, "item")} still unread in this slice.`
             : "Everything in this slice has already been opened.",
-        sourceItemIds: [],
+        sourceItemIds: attentionEvidenceItemIds,
       },
       {
         id: "overview-patterns",
         summary: topTags.length > 0 ? tagSummary : topSourceTypeText,
-        sourceItemIds: [],
+        sourceItemIds: patternEvidenceItemIds,
       },
     ],
     itemCount,
@@ -934,6 +992,7 @@ export async function buildDashboardOverview(args: {
 
   const filterKey = serializeDashboardFilters(args.filters) || "all";
   const itemHash = buildOverviewItemHash(candidates);
+  const candidateItemIds = new Set(candidates.map((item) => item.id));
   const canRetry = appConfig.hasOpenRouter || typeof args.generateAiOverview === "function";
   const cached = args.cacheStore
     ? await args.cacheStore.get({
@@ -943,13 +1002,14 @@ export async function buildDashboardOverview(args: {
         windowKey: OVERVIEW_WINDOW,
       })
     : null;
+  const canUseCachedPayload = cached ? hasTraceableAiEvidence(cached.payload, candidateItemIds) : false;
 
   if (!args.force && cached) {
-    if (cached?.itemHash === itemHash) {
+    if (cached?.itemHash === itemHash && canUseCachedPayload) {
       return buildOverviewFromPayload(cached.payload, cached.generatedAt, canRetry);
     }
 
-    if (appConfig.isDemoMode && !args.generateAiOverview && cached.payload.mode === "ai") {
+    if (appConfig.isDemoMode && !args.generateAiOverview && cached.payload.mode === "ai" && canUseCachedPayload) {
       return buildOverviewFromPayload(
         {
           ...cached.payload,
@@ -973,7 +1033,7 @@ export async function buildDashboardOverview(args: {
   const aiOverview = aiResult.payload;
   const failureReason = aiResult.failureReason;
   const staleAiPayload =
-    cached?.payload.mode === "ai"
+    cached?.payload.mode === "ai" && canUseCachedPayload
       ? {
           ...cached.payload,
           stale: true,
