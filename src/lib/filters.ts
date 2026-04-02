@@ -7,6 +7,13 @@ function takeFirst(value: SearchParamValue) {
   return Array.isArray(value) ? value[0] : value;
 }
 
+export function normalizeDashboardPage(value: number | string | null | undefined) {
+  const numericValue =
+    typeof value === "number" ? value : typeof value === "string" && value.length > 0 ? Number.parseInt(value, 10) : NaN;
+
+  return Number.isFinite(numericValue) && numericValue > 0 ? Math.floor(numericValue) : 1;
+}
+
 export function normalizeDashboardFilters(filters: Partial<DashboardFilters> | null | undefined): DashboardFilters {
   const sourceType = filters?.sourceType;
 
@@ -46,6 +53,14 @@ export function parseDashboardFiltersFromSearchParams(searchParams: URLSearchPar
   return parseDashboardFilters(Object.fromEntries(searchParams.entries()));
 }
 
+export function parseDashboardPage(params: Record<string, SearchParamValue>) {
+  return normalizeDashboardPage(takeFirst(params.page));
+}
+
+export function parseDashboardPageFromSearchParams(searchParams: URLSearchParams) {
+  return normalizeDashboardPage(searchParams.get("page"));
+}
+
 export function createDashboardSearchParams(filters: DashboardFilters) {
   const params = new URLSearchParams();
 
@@ -76,6 +91,20 @@ export function createDashboardSearchParams(filters: DashboardFilters) {
   return params;
 }
 
+export function createDashboardLocationSearchParams(filters: DashboardFilters, page = 1) {
+  const params = createDashboardSearchParams(filters);
+
+  if (page > 1) {
+    params.set("page", `${page}`);
+  }
+
+  return params;
+}
+
 export function serializeDashboardFilters(filters: DashboardFilters) {
   return createDashboardSearchParams(filters).toString();
+}
+
+export function serializeDashboardLocation(filters: DashboardFilters, page = 1) {
+  return createDashboardLocationSearchParams(filters, page).toString();
 }

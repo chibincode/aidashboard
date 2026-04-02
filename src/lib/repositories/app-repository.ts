@@ -14,12 +14,12 @@ import type {
 import type { DashboardSnapshot, SourceRecord } from "@/lib/domain";
 import {
   buildDemoAdminSnapshot,
-  buildDemoDashboard,
+  buildDemoDashboardData,
   readDemoStatesFromCookie,
   serializeDemoStates,
   upsertDemoState,
 } from "@/lib/demo-data";
-import { buildDashboardSnapshot } from "@/lib/dashboard";
+import { buildDashboardData, buildDashboardSnapshotFromData } from "@/lib/dashboard";
 import { getAppSession } from "@/lib/auth-guards";
 import { appConfig } from "@/lib/env";
 import { requireDb } from "@/lib/db";
@@ -41,7 +41,7 @@ import {
   userItemStates,
   workspaces,
 } from "@/lib/db/schema";
-import { DEMO_EMAIL, DEMO_USER_ID, DEMO_WORKSPACE_ID, defaultWorkspace, seedSources, seedTags } from "@/lib/seed";
+import { DEMO_EMAIL, DEMO_USER_ID, DEMO_WORKSPACE_ID, defaultWorkspace, seedEntities, seedSources, seedTags } from "@/lib/seed";
 import {
   getXSourceConfig,
   getYouTubeSourceConfig,
@@ -134,29 +134,58 @@ function toCategoryRecord(row: typeof categories.$inferSelect): CategoryRecord {
   };
 }
 
+function getOverviewEvidenceItems(
+  items: DashboardSnapshot["feedItems"],
+  overview: DashboardSnapshot["overview"],
+) {
+  if (!overview) {
+    return [];
+  }
+
+  const referencedIds = new Set(overview.insights.flatMap((insight) => insight.sourceItemIds));
+  return items.filter((item) => referencedIds.has(item.id));
+}
+
 export async function getDashboardSnapshot(
   filters: DashboardFilters,
-  options: { forceOverview?: boolean; now?: Date } = {},
+  options: { forceOverview?: boolean; includeOverview?: boolean; now?: Date; page?: number } = {},
 ): Promise<DashboardSnapshot> {
   const viewer = await getViewerContext();
+  const page = options.page && options.page > 0 ? Math.floor(options.page) : 1;
+  const includeOverview = options.includeOverview !== false;
 
   if (!appConfig.hasDatabase) {
     const demoStates = await loadDemoStates();
-    const snapshot = await buildDemoDashboard(viewer, demoStates, filters);
+    const demoData = await buildDemoDashboardData(viewer, demoStates, filters);
+    const overview = includeOverview
+      ? await buildDashboardOverview({
+          items: demoData.projected.feedItems,
+          filters,
+          workspaceId: viewer.workspaceId,
+          userId: viewer.userId,
+          now: options.now,
+          force: options.forceOverview,
+          cacheStore: createMemoryDashboardOverviewCacheStore(),
+        })
+      : null;
+    const snapshot = buildDashboardSnapshotFromData({
+      workspace: defaultWorkspace,
+      sources: seedSources,
+      entities: seedEntities,
+      tags: seedTags,
+      categories: demoData.projected.categories,
+      viewer,
+      data: demoData,
+      page,
+      itemLookupItems: includeOverview ? getOverviewEvidenceItems(demoData.projected.feedItems, overview) : [],
+    });
 
     return {
       ...snapshot,
-      overview: await buildDashboardOverview({
-        items: snapshot.feedItems,
-        filters,
-      workspaceId: viewer.workspaceId,
-      userId: viewer.userId,
-      now: options.now,
-      force: options.forceOverview,
-      cacheStore: createMemoryDashboardOverviewCacheStore(),
-    }),
-  };
-}
+      overview,
+      sections: [],
+    };
+  }
 
   const db = requireDb();
 
@@ -183,7 +212,6 @@ export async function getDashboardSnapshot(
     db.query.feedItems.findMany({
       where: eq(feedItems.workspaceId, viewer.workspaceId),
       orderBy: [desc(feedItems.publishedAt)],
-      limit: 50,
     }),
     db
       .select()
@@ -224,40 +252,58 @@ export async function getDashboardSnapshot(
     itemSourceMap.set(row.feedItemId, [...current, row.sourceId]);
   }
 
-  const snapshot = buildDashboardSnapshot({
+  const sourceRecords = sourceRows.map((source) => toSourceRecord(source, sourceDefaultTagMap.get(source.id) ?? []));
+  const categoryRecords = categoryRows.map(toCategoryRecord);
+  const userStateRecords = stateRows.map((entry) => ({
+    userId: entry.userId,
+    workspaceId: entry.workspaceId,
+    feedItemId: entry.feedItemId,
+    isRead: entry.isRead,
+    isSaved: entry.isSaved,
+    lastViewedAt: entry.lastViewedAt,
+  }));
+  const data = buildDashboardData({
     workspace: workspace ?? defaultWorkspace,
-    sources: sourceRows.map((source) => toSourceRecord(source, sourceDefaultTagMap.get(source.id) ?? [])),
+    sources: sourceRecords,
     entities: entityRows,
     tags: tagRows,
-    categories: categoryRows.map(toCategoryRecord),
+    categories: categoryRecords,
     feedItems: itemRows.map((item) => ({
       ...item,
       sourceIds: itemSourceMap.get(item.id) ?? [item.primarySourceId],
       tagIds: itemTagMap.get(item.id) ?? [],
     })),
-    userStates: stateRows.map((entry) => ({
-      userId: entry.userId,
-      workspaceId: entry.workspaceId,
-      feedItemId: entry.feedItemId,
-      isRead: entry.isRead,
-      isSaved: entry.isSaved,
-      lastViewedAt: entry.lastViewedAt,
-    })),
+    userStates: userStateRecords,
     viewer,
     filters,
+  });
+  const overview = includeOverview
+    ? await buildDashboardOverview({
+        items: data.projected.feedItems,
+        filters,
+        workspaceId: viewer.workspaceId,
+        userId: viewer.userId,
+        now: options.now,
+        force: options.forceOverview,
+        cacheStore: viewer.isAuthenticated ? createDbDashboardOverviewCacheStore(db) : createMemoryDashboardOverviewCacheStore(),
+      })
+    : null;
+  const snapshot = buildDashboardSnapshotFromData({
+    workspace: workspace ?? defaultWorkspace,
+    sources: sourceRecords,
+    entities: entityRows,
+    tags: tagRows,
+    categories: categoryRecords,
+    viewer,
+    data,
+    page,
+    itemLookupItems: includeOverview ? getOverviewEvidenceItems(data.projected.feedItems, overview) : [],
   });
 
   return {
     ...snapshot,
-    overview: await buildDashboardOverview({
-      items: snapshot.feedItems,
-      filters,
-      workspaceId: viewer.workspaceId,
-      userId: viewer.userId,
-      now: options.now,
-      force: options.forceOverview,
-      cacheStore: viewer.isAuthenticated ? createDbDashboardOverviewCacheStore(db) : createMemoryDashboardOverviewCacheStore(),
-    }),
+    overview,
+    sections: [],
   };
 }
 

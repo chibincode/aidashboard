@@ -6,7 +6,7 @@ import { SettingsDialog } from "@/components/settings/settings-dialog";
 import { Button } from "@/components/ui/button";
 import { appConfig } from "@/lib/env";
 import { getDashboardSnapshot } from "@/lib/repositories/app-repository";
-import { parseDashboardFilters } from "@/lib/filters";
+import { parseDashboardFilters, parseDashboardPage } from "@/lib/filters";
 import Link from "next/link";
 
 type PageProps = {
@@ -16,7 +16,8 @@ type PageProps = {
 export default async function Home({ searchParams }: PageProps) {
   const resolvedParams = await searchParams;
   const filters = parseDashboardFilters(resolvedParams);
-  const snapshot = await getDashboardSnapshot(filters);
+  const page = parseDashboardPage(resolvedParams);
+  const snapshot = await getDashboardSnapshot(filters, { page });
   const hasSettingsAccess = appConfig.hasDatabase && snapshot.viewer.isAuthenticated;
 
   return (

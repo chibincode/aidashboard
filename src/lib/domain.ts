@@ -272,6 +272,13 @@ export interface DashboardOverview {
   canRetry: boolean;
 }
 
+export interface DashboardPagination {
+  page: number;
+  pageSize: number;
+  totalItems: number;
+  hasMore: boolean;
+}
+
 export interface AdminSnapshot {
   workspace: WorkspaceRecord;
   sources: SourceRecord[];
@@ -289,6 +296,7 @@ export interface DashboardSnapshot {
   overview: DashboardOverview | null;
   allItems: DashboardItem[];
   feedItems: DashboardItem[];
+  pagination: DashboardPagination;
   sections: DashboardSection[];
   categories: CategoryRecord[];
   tags: TagRecord[];

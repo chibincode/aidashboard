@@ -57,6 +57,12 @@ const snapshot: DashboardSnapshot = {
   },
   allItems: [],
   feedItems: [],
+  pagination: {
+    page: 1,
+    pageSize: 50,
+    totalItems: 0,
+    hasMore: false,
+  },
   sections: [],
   categories: seedCategories,
   tags: [],
@@ -71,6 +77,54 @@ const snapshot: DashboardSnapshot = {
 };
 
 const filters: DashboardFilters = {};
+
+function buildOverviewResponse(overrides: Record<string, unknown> = {}) {
+  return {
+    overview: {
+      mode: "fallback",
+      window: "last-24h",
+      generatedAt: "2026-03-12T12:10:00.000Z",
+      headline: "Updated slice overview.",
+      insights: [
+        { id: "overview-insight-1", summary: "A", sourceItemIds: [] },
+        { id: "overview-insight-2", summary: "B", sourceItemIds: [] },
+        { id: "overview-insight-3", summary: "C", sourceItemIds: [] },
+      ],
+      itemCount: 1,
+      sourceCount: 1,
+      topTags: [],
+      model: null,
+      statusText: "AI summary unavailable right now. Showing direct stats from the current slice.",
+      canRetry: true,
+      ...overrides,
+    },
+    evidenceItems: [],
+  };
+}
+
+function buildFeedResponse(overrides: Record<string, unknown> = {}) {
+  return {
+    activeView: "all",
+    allItems: [],
+    feedItems: [],
+    pagination: {
+      page: 1,
+      pageSize: 50,
+      totalItems: 0,
+      hasMore: false,
+    },
+    ...overrides,
+  };
+}
+
+function jsonResponse(payload: unknown): Response {
+  return new Response(JSON.stringify(payload), {
+    status: 200,
+    headers: {
+      "Content-Type": "application/json",
+    },
+  });
+}
 
 function buildDashboardItem(overrides: Partial<DashboardSnapshot["allItems"][number]> = {}) {
   return {
@@ -108,27 +162,10 @@ describe("DashboardShell", () => {
     toggleSavedAction.mockClear();
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: async () => ({
-          overview: {
-            mode: "fallback",
-            window: "last-24h",
-            generatedAt: "2026-03-12T12:10:00.000Z",
-            headline: "Updated slice overview.",
-            insights: [
-              { id: "overview-insight-1", summary: "A", sourceItemIds: [] },
-              { id: "overview-insight-2", summary: "B", sourceItemIds: [] },
-              { id: "overview-insight-3", summary: "C", sourceItemIds: [] },
-            ],
-            itemCount: 1,
-            sourceCount: 1,
-            topTags: [],
-            model: null,
-            statusText: "AI summary unavailable right now. Showing direct stats from the current slice.",
-            canRetry: true,
-          },
-        }),
+      vi.fn(async (input) => {
+        const url = typeof input === "string" ? input : input instanceof URL ? input.pathname : input.url;
+
+        return jsonResponse(url === "/api/dashboard/feed" ? buildFeedResponse() : buildOverviewResponse());
       }),
     );
   });
@@ -219,14 +256,11 @@ describe("DashboardShell", () => {
       allItems: [buildDashboardItem()],
     };
 
-    vi.mocked(fetch).mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        overview: {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      jsonResponse(
+        buildOverviewResponse({
           mode: "ai",
           stale: true,
-          window: "last-24h",
-          generatedAt: "2026-03-12T12:10:00.000Z",
           headline: "Fresh AI summary.",
           insights: [
             { id: "overview-insight-1", summary: "Insight A", sourceItemIds: ["item_1"] },
@@ -235,13 +269,11 @@ describe("DashboardShell", () => {
           ],
           itemCount: 1,
           sourceCount: 1,
-          topTags: [],
           model: "minimax/minimax-m2.5-20260211",
           statusText: "OpenRouter did not finish a fresh summary in time. Showing the last successful AI summary.",
-          canRetry: true,
-        },
-      }),
-    } as Response);
+        }),
+      ),
+    );
 
     render(<DashboardShell snapshot={aiSnapshot} filters={filters} />);
 
@@ -270,7 +302,20 @@ describe("DashboardShell", () => {
           isSaved: true,
         }),
       ],
-      feedItems: [],
+      feedItems: [
+        buildDashboardItem({
+          id: "item_saved",
+          title: "Saved item",
+          canonicalUrl: "https://example.com/saved-item",
+          isSaved: true,
+        }),
+      ],
+      pagination: {
+        page: 1,
+        pageSize: 50,
+        totalItems: 1,
+        hasMore: false,
+      },
       sections: [],
     };
 
@@ -301,7 +346,20 @@ describe("DashboardShell", () => {
           isRead: false,
         }),
       ],
-      feedItems: [],
+      feedItems: [
+        buildDashboardItem({
+          id: "item_unread",
+          title: "Unread item",
+          canonicalUrl: "https://example.com/unread-item",
+          isRead: false,
+        }),
+      ],
+      pagination: {
+        page: 1,
+        pageSize: 50,
+        totalItems: 1,
+        hasMore: false,
+      },
       sections: [],
     };
 
@@ -333,7 +391,21 @@ describe("DashboardShell", () => {
           isSaved: false,
         }),
       ],
-      feedItems: [],
+      feedItems: [
+        buildDashboardItem({
+          id: "item_save_and_read",
+          title: "Unread item to save",
+          canonicalUrl: "https://example.com/unread-item-to-save",
+          isRead: false,
+          isSaved: false,
+        }),
+      ],
+      pagination: {
+        page: 1,
+        pageSize: 50,
+        totalItems: 1,
+        hasMore: false,
+      },
       sections: [],
     };
 
@@ -405,6 +477,21 @@ describe("DashboardShell", () => {
           sourceName: "Cursor",
         }),
       ],
+      feedItems: [
+        buildDashboardItem({
+          id: "item_a",
+          title: "OpenClaw ships memory import",
+          canonicalUrl: "https://example.com/openclaw",
+          authorAvatarUrl: "https://example.com/avatars/openclaw.png",
+          sourceName: "OpenClaw",
+        }),
+      ],
+      pagination: {
+        page: 1,
+        pageSize: 50,
+        totalItems: 1,
+        hasMore: false,
+      },
     };
 
     render(<DashboardShell snapshot={aiSnapshot} filters={filters} />);
@@ -421,5 +508,115 @@ describe("DashboardShell", () => {
     const dialog = screen.getByRole("dialog");
     expect(dialog).toBeInTheDocument();
     expect(within(dialog).getByText("LiteParse launches local parser")).toBeInTheDocument();
+  });
+
+  it("loads more items in place and stores page in the URL", async () => {
+    const user = userEvent.setup();
+    const pagedSnapshot: DashboardSnapshot = {
+      ...snapshot,
+      allItems: Array.from({ length: 50 }, (_, index) =>
+        buildDashboardItem({
+          id: `item_${index}`,
+          title: `Item ${index}`,
+          canonicalUrl: `https://example.com/item-${index}`,
+        }),
+      ),
+      feedItems: Array.from({ length: 50 }, (_, index) =>
+        buildDashboardItem({
+          id: `item_${index}`,
+          title: `Item ${index}`,
+          canonicalUrl: `https://example.com/item-${index}`,
+        }),
+      ),
+      pagination: {
+        page: 1,
+        pageSize: 50,
+        totalItems: 120,
+        hasMore: true,
+      },
+    };
+
+    vi.mocked(fetch).mockImplementation(async (input) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.pathname : input.url;
+
+      return jsonResponse(
+        url === "/api/dashboard/feed"
+          ? buildFeedResponse({
+              allItems: Array.from({ length: 100 }, (_, index) =>
+                buildDashboardItem({
+                  id: `item_${index}`,
+                  title: `Item ${index}`,
+                  canonicalUrl: `https://example.com/item-${index}`,
+                }),
+              ),
+              feedItems: Array.from({ length: 100 }, (_, index) =>
+                buildDashboardItem({
+                  id: `item_${index}`,
+                  title: `Item ${index}`,
+                  canonicalUrl: `https://example.com/item-${index}`,
+                }),
+              ),
+              pagination: {
+                page: 2,
+                pageSize: 50,
+                totalItems: 120,
+                hasMore: true,
+              },
+            })
+          : buildOverviewResponse(),
+      );
+    });
+
+    render(<DashboardShell snapshot={pagedSnapshot} filters={filters} />);
+
+    await user.click(screen.getByRole("button", { name: "Load more" }));
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/dashboard/feed",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          filters: {
+            view: undefined,
+            entity: undefined,
+            tag: undefined,
+            sourceType: undefined,
+            unreadOnly: false,
+            savedOnly: false,
+          },
+          page: 2,
+        }),
+      }),
+    );
+    expect(window.location.search).toBe("?page=2");
+    expect(await screen.findByText("100 of 120 items")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Item 99" })).toBeInTheDocument();
+  });
+
+  it("resets page to 1 when the view changes", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState({}, "", "/?page=2");
+
+    render(<DashboardShell snapshot={{ ...snapshot, pagination: { page: 2, pageSize: 50, totalItems: 120, hasMore: true } }} filters={filters} />);
+
+    await user.click(screen.getByRole("button", { name: "Website Inspiration" }));
+
+    expect(window.location.search).toBe("?view=category_website_inspiration");
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/dashboard/feed",
+      expect.objectContaining({
+        body: JSON.stringify({
+          filters: {
+            view: "category_website_inspiration",
+            entity: undefined,
+            tag: undefined,
+            sourceType: undefined,
+            unreadOnly: false,
+            savedOnly: false,
+          },
+          page: 1,
+        }),
+      }),
+    );
   });
 });

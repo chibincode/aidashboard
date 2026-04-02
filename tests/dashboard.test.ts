@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDashboardSnapshot } from "@/lib/dashboard";
+import { buildDashboardData, buildDashboardSnapshot, buildDashboardSnapshotFromData } from "@/lib/dashboard";
 import { buildDemoDashboard } from "@/lib/demo-data";
 import { DEMO_EMAIL, DEMO_USER_ID, DEMO_WORKSPACE_ID, defaultWorkspace, seedCategories, seedEntities, seedFeedItems, seedSources, seedTags } from "@/lib/seed";
 
@@ -194,5 +194,131 @@ describe("dashboard projection", () => {
     expect(snapshot.activeView).toBe("all");
     expect(snapshot.categories).toHaveLength(0);
     expect(snapshot.feedItems.length).toBeGreaterThan(0);
+  });
+
+  it("keeps category results on page 1 even when newer global items would push them past the old 50-item window", () => {
+    const websiteCategory = seedCategories.find((category) => category.id === "category_website_inspiration");
+    const websiteTagId = websiteCategory?.tagIds[0];
+    expect(websiteCategory).toBeDefined();
+    expect(websiteTagId).toBeDefined();
+
+    const newerNonWebsiteItems = Array.from({ length: 51 }, (_, index) => ({
+      ...seedFeedItems[0]!,
+      id: `item_newer_${index}`,
+      title: `Newer non-website item ${index}`,
+      canonicalUrl: `https://example.com/newer-${index}`,
+      fingerprint: `newer:${index}`,
+      publishedAt: new Date(Date.UTC(2026, 2, 31, 15, 45, index)),
+      tagIds: seedFeedItems[0]!.tagIds.filter((tagId) => tagId !== websiteTagId),
+    }));
+    const olderWebsiteItem = {
+      ...seedFeedItems[1]!,
+      id: "item_website_1",
+      title: "Website Inspiration item",
+      canonicalUrl: "https://example.com/website-inspiration",
+      fingerprint: "website:1",
+      publishedAt: new Date("2026-03-31T14:43:22.000Z"),
+      tagIds: [...new Set([...(seedFeedItems[1]!.tagIds ?? []), websiteTagId!])],
+    };
+
+    const snapshot = buildDashboardSnapshot({
+      workspace: defaultWorkspace,
+      sources: seedSources,
+      entities: seedEntities,
+      tags: seedTags,
+      categories: seedCategories,
+      feedItems: [...newerNonWebsiteItems, olderWebsiteItem],
+      userStates: [],
+      viewer: {
+        workspaceId: DEMO_WORKSPACE_ID,
+        userId: DEMO_USER_ID,
+        email: DEMO_EMAIL,
+        isAuthenticated: false,
+        lastVisitAt: new Date("2026-03-04T00:00:00.000Z"),
+      },
+      filters: { view: "category_website_inspiration" },
+    });
+
+    expect(snapshot.feedItems.map((item) => item.id)).toContain("item_website_1");
+    expect(snapshot.pagination.totalItems).toBe(1);
+  });
+
+  it("paginates each filtered slice cumulatively", () => {
+    const websiteCategory = seedCategories.find((category) => category.id === "category_website_inspiration");
+    const websiteTagId = websiteCategory?.tagIds[0];
+    expect(websiteTagId).toBeDefined();
+
+    const websiteItems = Array.from({ length: 120 }, (_, index) => ({
+      ...seedFeedItems[index % seedFeedItems.length]!,
+      id: `item_website_${index}`,
+      title: `Website item ${index}`,
+      canonicalUrl: `https://example.com/website-${index}`,
+      fingerprint: `website:${index}`,
+      publishedAt: new Date(Date.UTC(2026, 2, 31, 23, 59 - index, 0)),
+      tagIds: [...new Set([...(seedFeedItems[index % seedFeedItems.length]!.tagIds ?? []), websiteTagId!])],
+    }));
+    const data = buildDashboardData({
+      workspace: defaultWorkspace,
+      sources: seedSources,
+      entities: seedEntities,
+      tags: seedTags,
+      categories: seedCategories,
+      feedItems: websiteItems,
+      userStates: [],
+      viewer: {
+        workspaceId: DEMO_WORKSPACE_ID,
+        userId: DEMO_USER_ID,
+        email: DEMO_EMAIL,
+        isAuthenticated: false,
+        lastVisitAt: new Date("2026-03-04T00:00:00.000Z"),
+      },
+      filters: { view: "category_website_inspiration" },
+    });
+
+    const pageOne = buildDashboardSnapshotFromData({
+      workspace: defaultWorkspace,
+      sources: seedSources,
+      entities: seedEntities,
+      tags: seedTags,
+      categories: seedCategories,
+      viewer: {
+        workspaceId: DEMO_WORKSPACE_ID,
+        userId: DEMO_USER_ID,
+        email: DEMO_EMAIL,
+        isAuthenticated: false,
+        lastVisitAt: new Date("2026-03-04T00:00:00.000Z"),
+      },
+      data,
+      page: 1,
+    });
+    const pageTwo = buildDashboardSnapshotFromData({
+      workspace: defaultWorkspace,
+      sources: seedSources,
+      entities: seedEntities,
+      tags: seedTags,
+      categories: seedCategories,
+      viewer: {
+        workspaceId: DEMO_WORKSPACE_ID,
+        userId: DEMO_USER_ID,
+        email: DEMO_EMAIL,
+        isAuthenticated: false,
+        lastVisitAt: new Date("2026-03-04T00:00:00.000Z"),
+      },
+      data,
+      page: 2,
+    });
+
+    expect(pageOne.feedItems).toHaveLength(50);
+    expect(pageOne.pagination).toMatchObject({
+      page: 1,
+      totalItems: 120,
+      hasMore: true,
+    });
+    expect(pageTwo.feedItems).toHaveLength(100);
+    expect(pageTwo.pagination).toMatchObject({
+      page: 2,
+      totalItems: 120,
+      hasMore: true,
+    });
   });
 });

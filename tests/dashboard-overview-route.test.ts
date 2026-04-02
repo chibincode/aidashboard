@@ -31,6 +31,32 @@ describe("dashboard overview routes", () => {
         statusText: "AI summary unavailable right now. Showing direct stats from the current slice.",
         canRetry: true,
       },
+      allItems: [
+        {
+          id: "item_1",
+          title: "Evidence item",
+          excerpt: "Evidence excerpt",
+          canonicalUrl: "https://example.com/evidence",
+          contentType: "article",
+          publishedAt: new Date("2026-03-19T11:00:00.000Z"),
+          authorName: "Author",
+          authorAvatarUrl: null,
+          thumbnailUrl: null,
+          mediaKind: null,
+          mediaLabel: null,
+          isNew: true,
+          isRead: false,
+          isSaved: false,
+          sourceName: "Example",
+          sourceHandle: null,
+          sourceType: "website",
+          socialMetrics: null,
+          entityId: null,
+          entityName: null,
+          entityKind: null,
+          tags: [],
+        },
+      ],
     });
 
     const response = await postOverview(
@@ -65,12 +91,18 @@ describe("dashboard overview routes", () => {
       overview: {
         headline: "2 fresh signals landed in the last 24h.",
       },
+      evidenceItems: [
+        {
+          id: "item_1",
+        },
+      ],
     });
   });
 
   it("forces regeneration on retry", async () => {
     getDashboardSnapshotMock.mockResolvedValueOnce({
       overview: null,
+      allItems: [],
     });
 
     await postOverviewRetry(

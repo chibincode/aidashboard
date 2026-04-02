@@ -2,6 +2,7 @@ import type {
   CategoryRecord,
   DashboardFilters,
   DashboardItem,
+  DashboardPagination,
   DashboardSection,
   DashboardSnapshot,
   DashboardView,
@@ -14,6 +15,8 @@ import type {
   WorkspaceRecord,
 } from "@/lib/domain";
 import { normalizeFeedItemUrl } from "@/lib/feed-item-identity";
+
+export const DASHBOARD_PAGE_SIZE = 50;
 
 const NEW_SINCE_LAST_VISIT_SECTION: DashboardSection = {
   id: "new-since-last-visit",
@@ -225,7 +228,30 @@ export function projectDashboardState(args: {
   };
 }
 
-export function buildDashboardSnapshot(args: {
+export function paginateDashboardFeedItems(
+  items: DashboardItem[],
+  page = 1,
+  pageSize = DASHBOARD_PAGE_SIZE,
+): {
+  items: DashboardItem[];
+  pagination: DashboardPagination;
+} {
+  const normalizedPage = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1;
+  const visibleCount = normalizedPage * pageSize;
+  const pagedItems = items.slice(0, visibleCount);
+
+  return {
+    items: pagedItems,
+    pagination: {
+      page: normalizedPage,
+      pageSize,
+      totalItems: items.length,
+      hasMore: items.length > pagedItems.length,
+    },
+  };
+}
+
+export function buildDashboardData(args: {
   workspace: WorkspaceRecord;
   sources: SourceRecord[];
   entities: EntityRecord[];
@@ -235,7 +261,7 @@ export function buildDashboardSnapshot(args: {
   userStates: UserItemStateRecord[];
   viewer: ViewerContext;
   filters: DashboardFilters;
-}): DashboardSnapshot {
+}) {
   const sourceMap = new Map(args.sources.map((source) => [source.id, source]));
   const entityMap = new Map(args.entities.map((entity) => [entity.id, entity]));
   const tagMap = new Map(args.tags.map((tag) => [tag.id, tag]));
@@ -258,18 +284,8 @@ export function buildDashboardSnapshot(args: {
   });
 
   return {
-    renderId: `${Date.now()}`,
-    workspace: args.workspace,
-    viewer: args.viewer,
-    activeView: projected.activeView,
-    overview: null,
-    allItems: uniqueItems,
-    feedItems: projected.feedItems,
-    sections: projected.sections,
-    categories: projected.categories,
-    tags: args.tags,
-    entities: args.entities,
-    sources: args.sources,
+    uniqueItems,
+    projected,
     counts: {
       newItems: uniqueItems.filter((item) => item.isNew).length,
       unreadItems: uniqueItems.filter((item) => !item.isRead).length,
@@ -277,4 +293,65 @@ export function buildDashboardSnapshot(args: {
       healthySources: args.sources.filter((source) => source.healthStatus === "healthy").length,
     },
   };
+}
+
+export function buildDashboardSnapshotFromData(args: {
+  workspace: WorkspaceRecord;
+  sources: SourceRecord[];
+  entities: EntityRecord[];
+  tags: TagRecord[];
+  categories: CategoryRecord[];
+  viewer: ViewerContext;
+  data: ReturnType<typeof buildDashboardData>;
+  page?: number;
+  pageSize?: number;
+  itemLookupItems?: DashboardItem[];
+}) {
+  const paginated = paginateDashboardFeedItems(args.data.projected.feedItems, args.page, args.pageSize);
+  const itemLookupMap = new Map(paginated.items.map((item) => [item.id, item] as const));
+
+  for (const item of args.itemLookupItems ?? []) {
+    itemLookupMap.set(item.id, item);
+  }
+
+  return {
+    renderId: `${Date.now()}`,
+    workspace: args.workspace,
+    viewer: args.viewer,
+    activeView: args.data.projected.activeView,
+    overview: null,
+    allItems: [...itemLookupMap.values()],
+    feedItems: paginated.items,
+    pagination: paginated.pagination,
+    sections: args.data.projected.sections,
+    categories: args.data.projected.categories,
+    tags: args.tags,
+    entities: args.entities,
+    sources: args.sources,
+    counts: args.data.counts,
+  };
+}
+
+export function buildDashboardSnapshot(args: {
+  workspace: WorkspaceRecord;
+  sources: SourceRecord[];
+  entities: EntityRecord[];
+  tags: TagRecord[];
+  categories: CategoryRecord[];
+  feedItems: FeedItemRecord[];
+  userStates: UserItemStateRecord[];
+  viewer: ViewerContext;
+  filters: DashboardFilters;
+}): DashboardSnapshot {
+  const data = buildDashboardData(args);
+
+  return buildDashboardSnapshotFromData({
+    workspace: args.workspace,
+    sources: args.sources,
+    entities: args.entities,
+    tags: args.tags,
+    categories: args.categories,
+    viewer: args.viewer,
+    data,
+  });
 }

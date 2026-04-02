@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useCallback, useDeferredValue, useEffect, useEffectEvent, useMemo, useState, useSyncExternalStore } from "react";
+import { startTransition, useCallback, useEffect, useEffectEvent, useMemo, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { setItemReadAction, toggleSavedAction } from "@/actions/item-state";
 import { FeedDetailModal } from "@/components/dashboard/feed-detail-modal";
@@ -16,17 +16,56 @@ import { DashboardFiltersBar } from "@/components/dashboard/filters-bar";
 import { FeedCard, FeedCardActions } from "@/components/dashboard/feed-card";
 import { DashboardViewTabs } from "@/components/dashboard/view-tabs";
 import { getDashboardViewLabel } from "@/components/dashboard/view-meta";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
-  buildDashboardSections,
   filterDashboardItems,
-  getActiveDashboardCategories,
-  getDashboardFeedItemsForView,
   resolveActiveDashboardView,
 } from "@/lib/dashboard";
 import { DASHBOARD_LOCATION_CHANGE_EVENT, DASHBOARD_REFRESH_START_EVENT } from "@/lib/dashboard-events";
-import type { DashboardFilters, DashboardItem, DashboardSnapshot, DashboardView } from "@/lib/domain";
-import { parseDashboardFiltersFromSearchParams, serializeDashboardFilters } from "@/lib/filters";
+import type { DashboardFilters, DashboardItem, DashboardPagination, DashboardSnapshot, DashboardView } from "@/lib/domain";
+import { parseDashboardFiltersFromSearchParams, parseDashboardPageFromSearchParams, serializeDashboardFilters, serializeDashboardLocation } from "@/lib/filters";
+
+type DashboardFeedState = Pick<DashboardSnapshot, "allItems" | "feedItems" | "pagination"> & {
+  filtersKey: string;
+};
+
+function hydrateDashboardItem(
+  item: Omit<DashboardItem, "publishedAt"> & {
+    publishedAt: string;
+  },
+): DashboardItem {
+  return {
+    ...item,
+    publishedAt: new Date(item.publishedAt),
+  };
+}
+
+function hydrateDashboardItems(
+  items: Array<
+    Omit<DashboardItem, "publishedAt"> & {
+      publishedAt: string;
+    }
+  >,
+) {
+  return items.map(hydrateDashboardItem);
+}
+
+function mergeDashboardItems(...collections: DashboardItem[][]) {
+  const itemMap = new Map<string, DashboardItem>();
+
+  for (const collection of collections) {
+    for (const item of collection) {
+      itemMap.set(item.id, item);
+    }
+  }
+
+  return [...itemMap.values()];
+}
+
+function createFeedCacheKey(filtersKey: string, page: number) {
+  return `${filtersKey}::${page}`;
+}
 
 function DashboardFeedSkeleton({
   view,
@@ -78,6 +117,17 @@ export function DashboardShell({
   filters: DashboardFilters;
 }) {
   const router = useRouter();
+  const initialFiltersKey = useMemo(() => serializeDashboardFilters(filters) || "all", [filters]);
+  const initialPage = snapshot.pagination.page;
+  const initialFeedState = useMemo<DashboardFeedState>(
+    () => ({
+      allItems: snapshot.allItems,
+      feedItems: snapshot.feedItems,
+      pagination: snapshot.pagination,
+      filtersKey: initialFiltersKey,
+    }),
+    [initialFiltersKey, snapshot.allItems, snapshot.feedItems, snapshot.pagination],
+  );
   const [overviewRetryMessage, setOverviewRetryMessage] = useState<{
     tone: "neutral" | "success" | "warning";
     text: string;
@@ -88,16 +138,24 @@ export function DashboardShell({
   >({});
   const [overview, setOverview] = useState(snapshot.overview);
   const [overviewCache, setOverviewCache] = useState<Record<string, DashboardSnapshot["overview"]>>(() => ({
-    [serializeDashboardFilters(filters) || "all"]: snapshot.overview,
+    [initialFiltersKey]: snapshot.overview,
   }));
+  const [overviewEvidenceCache, setOverviewEvidenceCache] = useState<Record<string, DashboardItem[]>>(() => ({
+    [initialFiltersKey]: snapshot.allItems,
+  }));
+  const [feedState, setFeedState] = useState<DashboardFeedState>(initialFeedState);
+  const [feedCache, setFeedCache] = useState<Record<string, Pick<DashboardFeedState, "allItems" | "feedItems" | "pagination">>>(() => ({
+    [createFeedCacheKey(initialFiltersKey, initialPage)]: initialFeedState,
+  }));
+  const [feedLoading, setFeedLoading] = useState(false);
   const [overviewLoading, setOverviewLoading] = useState(false);
   const [overviewRetrying, setOverviewRetrying] = useState(false);
   const [detailItemId, setDetailItemId] = useState<string | null>(null);
   const [detailPendingAction, setDetailPendingAction] = useState<"read" | "save" | null>(null);
   const initialSearch = useMemo(() => {
-    const query = serializeDashboardFilters(filters);
+    const query = serializeDashboardLocation(filters, initialPage);
     return query ? `?${query}` : "";
-  }, [filters]);
+  }, [filters, initialPage]);
   const currentSearch = useSyncExternalStore(
     (onStoreChange) => {
       function handleLocationChange() {
@@ -119,46 +177,35 @@ export function DashboardShell({
     () => parseDashboardFiltersFromSearchParams(new URLSearchParams(currentSearch)),
     [currentSearch],
   );
-  const deferredFilters = useDeferredValue(currentFilters);
+  const currentPage = useMemo(() => parseDashboardPageFromSearchParams(new URLSearchParams(currentSearch)), [currentSearch]);
   const currentFiltersKey = useMemo(() => serializeDashboardFilters(currentFilters) || "all", [currentFilters]);
-  const initialFiltersKey = useMemo(() => serializeDashboardFilters(filters) || "all", [filters]);
-  const itemsWithOverrides = useMemo(
+  const lookupItems = useMemo(
     () =>
-      snapshot.allItems.map((item) => {
+      mergeDashboardItems(feedState.allItems, overviewEvidenceCache[currentFiltersKey] ?? []).map((item) => {
         const override = itemStateOverrides[item.id];
         return override ? { ...item, ...override } : item;
       }),
-    [itemStateOverrides, snapshot.allItems],
+    [currentFiltersKey, feedState.allItems, itemStateOverrides, overviewEvidenceCache],
   );
-  const itemsById = useMemo(() => new Map(itemsWithOverrides.map((item) => [item.id, item] as const)), [itemsWithOverrides]);
-  const activeCategories = useMemo(() => getActiveDashboardCategories(snapshot.categories), [snapshot.categories]);
-  const filteredItems = useMemo(
-    () => filterDashboardItems(itemsWithOverrides, deferredFilters),
-    [deferredFilters, itemsWithOverrides],
+  const feedItems = useMemo(
+    () =>
+      feedState.feedItems.map((item) => {
+        const override = itemStateOverrides[item.id];
+        return override ? { ...item, ...override } : item;
+      }),
+    [feedState.feedItems, itemStateOverrides],
   );
-  const sections = useMemo(
-    () => buildDashboardSections(filteredItems, activeCategories),
-    [activeCategories, filteredItems],
-  );
+  const itemsById = useMemo(() => new Map(lookupItems.map((item) => [item.id, item] as const)), [lookupItems]);
+  const activeCategories = snapshot.categories;
+  const visibleFeedItems = useMemo(() => filterDashboardItems(feedItems, currentFilters), [currentFilters, feedItems]);
   const activeView = useMemo(
-    () => resolveActiveDashboardView(deferredFilters.view, activeCategories),
-    [activeCategories, deferredFilters.view],
+    () => resolveActiveDashboardView(currentFilters.view, activeCategories),
+    [activeCategories, currentFilters.view],
   );
-  const projectedFeedItems = useMemo(
-    () => getDashboardFeedItemsForView(activeView, sections, filteredItems),
-    [activeView, filteredItems, sections],
-  );
-  const projected = useMemo(
-    () => ({
-      activeView,
-      categories: activeCategories,
-      sections,
-      feedItems: projectedFeedItems,
-    }),
-    [activeCategories, activeView, projectedFeedItems, sections],
-  );
-  const activeLabel = getDashboardViewLabel(projected.activeView, projected.categories);
+  const activeLabel = getDashboardViewLabel(activeView, activeCategories);
   const isBackgroundRefreshing = refreshingRenderId === snapshot.renderId;
+  const isLoadingDifferentSlice = feedLoading && currentPage === 1 && feedState.filtersKey !== currentFiltersKey;
+  const isLoadingMore = feedLoading && feedState.filtersKey === currentFiltersKey && currentPage > feedState.pagination.page;
   const selectedDetailItem = useMemo(
     () => (detailItemId ? itemsById.get(detailItemId) ?? null : null),
     [detailItemId, itemsById],
@@ -174,8 +221,8 @@ export function DashboardShell({
     }
   }, [detailItemId, selectedDetailItem]);
 
-  function syncUrl(nextFilters: DashboardFilters, mode: "push" | "replace" = "push") {
-    const query = serializeDashboardFilters(nextFilters);
+  function syncUrl(nextFilters: DashboardFilters, nextPage = 1, mode: "push" | "replace" = "push") {
+    const query = serializeDashboardLocation(nextFilters, nextPage);
     const nextUrl = query ? `${window.location.pathname}?${query}` : window.location.pathname;
     const currentUrl = `${window.location.pathname}${window.location.search}`;
 
@@ -187,19 +234,19 @@ export function DashboardShell({
     window.dispatchEvent(new Event(DASHBOARD_LOCATION_CHANGE_EVENT));
   }
 
-  function applyFilters(nextFilters: DashboardFilters, mode: "push" | "replace" = "push") {
-    syncUrl(nextFilters, mode);
+  function applyFilters(nextFilters: DashboardFilters, nextPage = 1, mode: "push" | "replace" = "push") {
+    syncUrl(nextFilters, nextPage, mode);
   }
 
   function setView(view: DashboardView) {
-    if (view === projected.activeView) {
+    if (view === activeView) {
       return;
     }
 
     applyFilters({
       ...currentFilters,
       view: view === "all" ? undefined : view,
-    });
+    }, 1);
   }
 
   useEffect(() => {
@@ -213,6 +260,35 @@ export function DashboardShell({
       window.removeEventListener(DASHBOARD_REFRESH_START_EVENT, handleRefreshStart);
     };
   }, [snapshot.renderId]);
+
+  useEffect(() => {
+    setFeedCache((current) => ({
+      ...current,
+      [createFeedCacheKey(initialFiltersKey, initialPage)]: {
+        allItems: snapshot.allItems,
+        feedItems: snapshot.feedItems,
+        pagination: snapshot.pagination,
+      },
+    }));
+    setOverviewEvidenceCache((current) => ({
+      ...current,
+      [initialFiltersKey]: snapshot.allItems,
+    }));
+
+    if (currentFiltersKey === initialFiltersKey && currentPage === initialPage) {
+      setFeedState(initialFeedState);
+      setFeedLoading(false);
+    }
+  }, [
+    currentFiltersKey,
+    currentPage,
+    initialFeedState,
+    initialFiltersKey,
+    initialPage,
+    snapshot.allItems,
+    snapshot.feedItems,
+    snapshot.pagination,
+  ]);
 
   const requestOverview = useEffectEvent(async (nextFilters: DashboardFilters, force = false, signal?: AbortSignal) => {
     const response = await fetch(force ? "/api/dashboard/overview/retry" : "/api/dashboard/overview", {
@@ -236,15 +312,59 @@ export function DashboardShell({
             generatedAt: string | null;
           })
         | null;
+      evidenceItems: Array<
+        Omit<DashboardItem, "publishedAt"> & {
+          publishedAt: string;
+        }
+      >;
     };
 
-    if (!payload.overview) {
-      return null;
+    return {
+      overview: payload.overview
+        ? {
+            ...payload.overview,
+            generatedAt: payload.overview.generatedAt ? new Date(payload.overview.generatedAt) : null,
+          }
+        : null,
+      evidenceItems: hydrateDashboardItems(payload.evidenceItems),
+    };
+  });
+
+  const requestFeed = useEffectEvent(async (nextFilters: DashboardFilters, nextPage: number, signal?: AbortSignal) => {
+    const response = await fetch("/api/dashboard/feed", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        filters: nextFilters,
+        page: nextPage,
+      }),
+      signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to load feed (${response.status}).`);
     }
 
+    const payload = (await response.json()) as {
+      allItems: Array<
+        Omit<DashboardItem, "publishedAt"> & {
+          publishedAt: string;
+        }
+      >;
+      feedItems: Array<
+        Omit<DashboardItem, "publishedAt"> & {
+          publishedAt: string;
+        }
+      >;
+      pagination: DashboardPagination;
+    };
+
     return {
-      ...payload.overview,
-      generatedAt: payload.overview.generatedAt ? new Date(payload.overview.generatedAt) : null,
+      allItems: hydrateDashboardItems(payload.allItems),
+      feedItems: hydrateDashboardItems(payload.feedItems),
+      pagination: payload.pagination,
     };
   });
 
@@ -260,7 +380,7 @@ export function DashboardShell({
       };
     });
 
-    if (currentFiltersKey === initialFiltersKey) {
+    if (currentFiltersKey === initialFiltersKey && currentPage === initialPage) {
       setOverview(snapshot.overview);
       setOverviewLoading(false);
       setOverviewRetryMessage(null);
@@ -279,11 +399,15 @@ export function DashboardShell({
     setOverviewRetryMessage(null);
 
     void requestOverview(currentFilters, false, controller.signal)
-      .then((nextOverview) => {
-        setOverview(nextOverview);
+      .then((nextPayload) => {
+        setOverview(nextPayload.overview);
         setOverviewCache((current) => ({
           ...current,
-          [currentFiltersKey]: nextOverview,
+          [currentFiltersKey]: nextPayload.overview,
+        }));
+        setOverviewEvidenceCache((current) => ({
+          ...current,
+          [currentFiltersKey]: nextPayload.evidenceItems,
         }));
       })
       .catch((error) => {
@@ -301,7 +425,56 @@ export function DashboardShell({
     return () => {
       controller.abort();
     };
-  }, [currentFilters, currentFiltersKey, initialFiltersKey, overviewCache, requestOverview, snapshot.overview]);
+  }, [currentFilters, currentFiltersKey, currentPage, initialFiltersKey, initialPage, overviewCache, requestOverview, snapshot.overview]);
+
+  useEffect(() => {
+    if (currentFiltersKey === initialFiltersKey && currentPage === initialPage) {
+      setFeedState(initialFeedState);
+      setFeedLoading(false);
+      return;
+    }
+
+    const cacheKey = createFeedCacheKey(currentFiltersKey, currentPage);
+    const cachedFeed = feedCache[cacheKey];
+
+    if (cachedFeed) {
+      setFeedState({
+        ...cachedFeed,
+        filtersKey: currentFiltersKey,
+      });
+      setFeedLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setFeedLoading(true);
+
+    void requestFeed(currentFilters, currentPage, controller.signal)
+      .then((nextFeed) => {
+        setFeedState({
+          ...nextFeed,
+          filtersKey: currentFiltersKey,
+        });
+        setFeedCache((current) => ({
+          ...current,
+          [cacheKey]: nextFeed,
+        }));
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted) {
+          console.error(error);
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setFeedLoading(false);
+        }
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [currentFilters, currentFiltersKey, currentPage, feedCache, initialFeedState, initialFiltersKey, initialPage, requestFeed]);
 
   const applyItemStatePatch = useCallback((itemId: string, patch: Partial<Pick<DashboardItem, "isRead" | "isSaved">>) => {
     setItemStateOverrides((currentOverrides) => ({
@@ -379,24 +552,28 @@ export function DashboardShell({
     setOverviewRetryMessage(null);
 
     void requestOverview(currentFilters, true)
-      .then((nextOverview) => {
-        setOverview(nextOverview);
+      .then((nextPayload) => {
+        setOverview(nextPayload.overview);
         setOverviewCache((current) => ({
           ...current,
-          [currentFiltersKey]: nextOverview,
+          [currentFiltersKey]: nextPayload.overview,
+        }));
+        setOverviewEvidenceCache((current) => ({
+          ...current,
+          [currentFiltersKey]: nextPayload.evidenceItems,
         }));
         setOverviewRetryMessage(
-          !nextOverview
+          !nextPayload.overview
             ? {
                 tone: "neutral",
                 text: "No items landed in the last 24 hours for this slice.",
               }
-            : nextOverview.mode === "ai" && !nextOverview.stale
+            : nextPayload.overview.mode === "ai" && !nextPayload.overview.stale
               ? {
                   tone: "success",
                   text: "AI summary refreshed successfully.",
                 }
-              : nextOverview.mode === "ai" && nextOverview.stale
+              : nextPayload.overview.mode === "ai" && nextPayload.overview.stale
                 ? {
                     tone: "neutral",
                     text: "OpenRouter did not finish a fresh summary in time, so the last successful AI summary is still shown.",
@@ -419,18 +596,26 @@ export function DashboardShell({
       });
   }
 
+  function loadMoreItems() {
+    if (!feedState.pagination.hasMore || isLoadingMore) {
+      return;
+    }
+
+    applyFilters(currentFilters, currentPage + 1);
+  }
+
   return (
     <section className="grid gap-6 lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-10">
       <aside className="lg:sticky lg:top-16 lg:self-start">
-        <DashboardViewTabs activeView={projected.activeView} categories={projected.categories} layout="sidebar" onChange={setView} />
+        <DashboardViewTabs activeView={activeView} categories={activeCategories} layout="sidebar" onChange={setView} />
         <div className="mt-4">
           <DashboardFiltersBar
             filters={currentFilters}
             tags={snapshot.tags}
             entities={snapshot.entities}
             layout="sidebar"
-            onChange={(nextFilters) => applyFilters(nextFilters)}
-            onClear={() => applyFilters({}, "push")}
+            onChange={(nextFilters) => applyFilters(nextFilters, 1)}
+            onClear={() => applyFilters({}, 1, "push")}
           />
         </div>
       </aside>
@@ -455,23 +640,33 @@ export function DashboardShell({
               <div className="h-4 w-[4.5rem] animate-pulse rounded-full bg-slate-100" aria-hidden="true" />
             ) : (
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                {projected.feedItems.length} items
+                {feedState.pagination.hasMore ? `${visibleFeedItems.length} of ${feedState.pagination.totalItems} items` : `${feedState.pagination.totalItems} items`}
               </p>
             )}
           </div>
 
-          {isBackgroundRefreshing ? (
-            <DashboardFeedSkeleton view={projected.activeView} categories={projected.categories} />
-          ) : projected.feedItems.length === 0 ? (
+          {isBackgroundRefreshing || isLoadingDifferentSlice ? (
+            <DashboardFeedSkeleton view={activeView} categories={activeCategories} />
+          ) : visibleFeedItems.length === 0 ? (
             <Card className="rounded-[24px] border border-dashed border-black/10 bg-black/[0.015] p-6 text-sm text-slate-500 shadow-none">
               No items match the current tab and filters.
             </Card>
           ) : (
-            <div className="grid gap-4 [content-visibility:auto] [contain-intrinsic-size:1200px]">
-              {projected.feedItems.map((item) => (
-                <FeedCard key={item.id} item={item} onItemStateChange={handleItemStateChange} onOpenDetail={openDetail} />
-              ))}
-            </div>
+            <>
+              <div className="grid gap-4 [content-visibility:auto] [contain-intrinsic-size:1200px]">
+                {visibleFeedItems.map((item) => (
+                  <FeedCard key={item.id} item={item} onItemStateChange={handleItemStateChange} onOpenDetail={openDetail} />
+                ))}
+              </div>
+
+              {feedState.pagination.hasMore ? (
+                <div className="mt-5 flex justify-center">
+                  <Button variant="secondary" size="sm" loading={isLoadingMore} loadingLabel="Loading more..." onClick={loadMoreItems}>
+                    Load more
+                  </Button>
+                </div>
+              ) : null}
+            </>
           )}
         </div>
       </div>

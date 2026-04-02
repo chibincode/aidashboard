@@ -1,5 +1,5 @@
 import type { AdminSnapshot, DashboardFilters, DashboardSnapshot, FeedItemRecord, SourceRecord, UserItemStateRecord, ViewerContext } from "@/lib/domain";
-import { buildDashboardSnapshot } from "@/lib/dashboard";
+import { buildDashboardData, buildDashboardSnapshotFromData } from "@/lib/dashboard";
 import { fingerprintForFeedItem, normalizeFeedItemUrl } from "@/lib/feed-item-identity";
 import { ingestSource } from "@/lib/ingestion";
 import {
@@ -121,9 +121,28 @@ export async function buildDemoDashboard(
   filters: DashboardFilters,
   sources: SourceRecord[] = seedSources,
 ): Promise<DashboardSnapshot> {
+  const data = await buildDemoDashboardData(viewer, userStates, filters, sources);
+
+  return buildDashboardSnapshotFromData({
+    workspace: defaultWorkspace,
+    sources,
+    entities: seedEntities,
+    tags: seedTags,
+    categories: seedCategories,
+    viewer,
+    data,
+  });
+}
+
+export async function buildDemoDashboardData(
+  viewer: ViewerContext,
+  userStates: UserItemStateRecord[],
+  filters: DashboardFilters,
+  sources: SourceRecord[] = seedSources,
+) {
   const liveFeedItems = await getLiveDemoFeedItems(sources);
 
-  return buildDashboardSnapshot({
+  return buildDashboardData({
     workspace: defaultWorkspace,
     sources,
     entities: seedEntities,

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import type { DashboardFilters } from "@/lib/domain";
-import { normalizeDashboardFilters } from "@/lib/filters";
+import { normalizeDashboardFilters, normalizeDashboardPage } from "@/lib/filters";
 import { getDashboardSnapshot } from "@/lib/repositories/app-repository";
 
 const requestSchema = z
@@ -16,19 +16,23 @@ const requestSchema = z
         savedOnly: z.boolean().optional(),
       })
       .optional(),
-    force: z.boolean().optional(),
+    page: z.number().optional(),
   })
   .optional();
 
-export async function buildDashboardOverviewResponse(request: Request, force = false) {
+export async function buildDashboardFeedResponse(request: Request) {
   const body = requestSchema.parse(await request.json().catch(() => undefined));
   const filters = normalizeDashboardFilters(body?.filters as Partial<DashboardFilters> | undefined);
+  const page = normalizeDashboardPage(body?.page);
   const snapshot = await getDashboardSnapshot(filters, {
-    forceOverview: force || body?.force === true,
+    page,
+    includeOverview: false,
   });
 
   return NextResponse.json({
-    overview: snapshot.overview,
-    evidenceItems: snapshot.allItems,
+    activeView: snapshot.activeView,
+    allItems: snapshot.allItems,
+    feedItems: snapshot.feedItems,
+    pagination: snapshot.pagination,
   });
 }
