@@ -3,7 +3,7 @@ import type { User } from "@supabase/supabase-js";
 import { requireDb } from "@/lib/db";
 import { appConfig } from "@/lib/env";
 import { ensurePersonalOwnerWorkspaceAccess } from "@/lib/personal-account";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseServerClient, hasSupabaseAuthSessionCookie } from "@/lib/supabase/server";
 
 export type AppSession = {
   user: {
@@ -25,10 +25,19 @@ export async function getAppSession(): Promise<AppSession | null> {
     return null;
   }
 
+  if (!(await hasSupabaseAuthSessionCookie())) {
+    return null;
+  }
+
   const supabase = await createSupabaseServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  let user: User | null = null;
+
+  try {
+    const response = await supabase.auth.getSession();
+    user = response.data.session?.user ?? null;
+  } catch {
+    return null;
+  }
 
   if (!user?.id || !user.email) {
     return null;

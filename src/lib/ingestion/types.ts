@@ -27,6 +27,7 @@ export interface SourceAdapterResult {
   items: NormalizedIncomingItem[];
   adapter: SourceType;
   warnings: string[];
+  sourceAvatarUrl?: string | null;
 }
 
 export interface SourceAdapter {

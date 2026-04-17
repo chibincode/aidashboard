@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 const X_HOSTNAMES = new Set(["x.com", "www.x.com", "twitter.com", "www.twitter.com"]);
+const NITTER_HOSTNAMES = new Set(["nitter.net", "www.nitter.net"]);
 
 export function normalizeFeedItemUrl(value: string) {
   try {
@@ -13,7 +14,7 @@ export function normalizeFeedItemUrl(value: string) {
     }
 
     const hostname = url.hostname.toLowerCase();
-    if (X_HOSTNAMES.has(hostname)) {
+    if (X_HOSTNAMES.has(hostname) || NITTER_HOSTNAMES.has(hostname)) {
       url.hostname = "x.com";
 
       const segments = url.pathname

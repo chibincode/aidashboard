@@ -34,6 +34,20 @@ const SAVED_SECTION: DashboardSection = {
   items: [],
 };
 
+function compareDashboardItems(left: DashboardItem, right: DashboardItem) {
+  const publishedAtDiff = right.publishedAt.getTime() - left.publishedAt.getTime();
+  if (publishedAtDiff !== 0) {
+    return publishedAtDiff;
+  }
+
+  const canonicalUrlDiff = left.canonicalUrl.localeCompare(right.canonicalUrl);
+  if (canonicalUrlDiff !== 0) {
+    return canonicalUrlDiff;
+  }
+
+  return right.id.localeCompare(left.id);
+}
+
 function mergeDashboardItems(existing: DashboardItem, incoming: DashboardItem): DashboardItem {
   const tagMap = new Map(existing.tags.map((tag) => [tag.id, tag]));
   for (const tag of incoming.tags) {
@@ -69,7 +83,7 @@ function mergeDashboardItems(existing: DashboardItem, incoming: DashboardItem): 
 function dedupeDashboardItems(items: DashboardItem[]) {
   const deduped = new Map<string, DashboardItem>();
 
-  for (const item of items) {
+  for (const item of [...items].sort(compareDashboardItems)) {
     const key = normalizeFeedItemUrl(item.canonicalUrl);
     const existing = deduped.get(key);
 
@@ -81,7 +95,7 @@ function dedupeDashboardItems(items: DashboardItem[]) {
     deduped.set(key, mergeDashboardItems(existing, item));
   }
 
-  return [...deduped.values()].sort((left, right) => right.publishedAt.getTime() - left.publishedAt.getTime());
+  return [...deduped.values()].sort(compareDashboardItems);
 }
 
 function toDashboardItem(args: {
@@ -101,7 +115,7 @@ function toDashboardItem(args: {
     id: item.id,
     title: item.title,
     excerpt: item.excerpt,
-    canonicalUrl: item.canonicalUrl,
+    canonicalUrl: normalizeFeedItemUrl(item.canonicalUrl),
     contentType: item.contentType,
     publishedAt: item.publishedAt,
     authorName: item.authorName,

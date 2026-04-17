@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
 
 export function SourceAvatar({
@@ -15,6 +15,11 @@ export function SourceAvatar({
   fallbackClassName?: string;
 }) {
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
+
+  useEffect(() => {
+    setFailedSrc(null);
+  }, [src]);
+
   const showFallback = !src || failedSrc === src;
 
   return (
@@ -32,7 +37,7 @@ export function SourceAvatar({
           className="h-full w-full object-cover"
           loading="lazy"
           decoding="async"
-          referrerPolicy="no-referrer"
+          referrerPolicy="strict-origin-when-cross-origin"
           onError={() => setFailedSrc(src)}
         />
       ) : (

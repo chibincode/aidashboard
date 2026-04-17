@@ -120,6 +120,13 @@ export async function syncSourceById(sourceId: string) {
     await db
       .update(sources)
       .set({
+        config:
+          result.sourceAvatarUrl && source.type === "x"
+            ? {
+                ...source.config,
+                avatarUrl: result.sourceAvatarUrl,
+              }
+            : source.config,
         lastFetchedAt: new Date(),
         healthStatus: result.warnings.length > 0 ? "degraded" : "healthy",
         lastErrorMessage: result.warnings.length > 0 ? result.warnings.join(" | ") : null,

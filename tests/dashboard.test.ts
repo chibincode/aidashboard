@@ -105,6 +105,36 @@ describe("dashboard projection", () => {
     expect(snapshot.feedItems[0]?.tags.map((tag) => tag.id)).toContain("tag_aiux");
   });
 
+  it("normalizes legacy nitter links to x.com when projecting dashboard items", () => {
+    const baseItem = seedFeedItems.find((item) => item.id === "item_al_1");
+    expect(baseItem).toBeDefined();
+
+    const snapshot = buildDashboardSnapshot({
+      workspace: defaultWorkspace,
+      sources: seedSources,
+      entities: seedEntities,
+      tags: seedTags,
+      categories: seedCategories,
+      feedItems: [
+        {
+          ...baseItem!,
+          canonicalUrl: "https://nitter.net/AILoadboard/status/1001",
+        },
+      ],
+      userStates: [],
+      viewer: {
+        workspaceId: DEMO_WORKSPACE_ID,
+        userId: DEMO_USER_ID,
+        email: DEMO_EMAIL,
+        isAuthenticated: false,
+        lastVisitAt: new Date("2026-03-04T00:00:00.000Z"),
+      },
+      filters: {},
+    });
+
+    expect(snapshot.feedItems[0]?.canonicalUrl).toBe("https://x.com/ailoadboard/status/1001");
+  });
+
   it("builds competitor watch from entity kinds instead of hardcoded entity names", () => {
     const snapshot = buildDashboardSnapshot({
       workspace: defaultWorkspace,
@@ -320,5 +350,53 @@ describe("dashboard projection", () => {
       totalItems: 120,
       hasMore: true,
     });
+  });
+
+  it("keeps equal-timestamp slice ordering stable regardless of input order", () => {
+    const aiuxCategory = seedCategories.find((category) => category.id === "category_aiux");
+    const aiuxTagId = aiuxCategory?.tagIds[0];
+    expect(aiuxTagId).toBeDefined();
+
+    const sharedPublishedAt = new Date("2026-04-02T10:21:18.766Z");
+    const xItems = Array.from({ length: 55 }, (_, index) => ({
+      ...seedFeedItems[0]!,
+      id: `item_aiux_${String(index).padStart(2, "0")}`,
+      title: `AI UX X item ${index}`,
+      canonicalUrl: `https://x.com/example/status/${1000 + index}`,
+      fingerprint: `aiux:${index}`,
+      publishedAt: sharedPublishedAt,
+      primarySourceId: "source_aiux_x",
+      tagIds: [...new Set([...(seedFeedItems[0]!.tagIds ?? []), aiuxTagId!])],
+    }));
+
+    const baseArgs = {
+      workspace: defaultWorkspace,
+      sources: seedSources,
+      entities: seedEntities,
+      tags: seedTags,
+      categories: seedCategories,
+      userStates: [],
+      viewer: {
+        workspaceId: DEMO_WORKSPACE_ID,
+        userId: DEMO_USER_ID,
+        email: DEMO_EMAIL,
+        isAuthenticated: false,
+        lastVisitAt: new Date("2026-03-04T00:00:00.000Z"),
+      },
+      filters: { view: "category_aiux" as const },
+    };
+
+    const forwardSnapshot = buildDashboardSnapshot({
+      ...baseArgs,
+      feedItems: xItems,
+    });
+    const reversedSnapshot = buildDashboardSnapshot({
+      ...baseArgs,
+      feedItems: [...xItems].reverse(),
+    });
+
+    expect(forwardSnapshot.feedItems.map((item) => item.id)).toEqual(reversedSnapshot.feedItems.map((item) => item.id));
+    expect(forwardSnapshot.feedItems).toHaveLength(50);
+    expect(forwardSnapshot.pagination.totalItems).toBe(55);
   });
 });

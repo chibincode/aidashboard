@@ -1,12 +1,14 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import * as cheerio from "cheerio";
+import Parser from "rss-parser";
 import type { SourceRecord } from "@/lib/domain";
 import { env } from "@/lib/env";
 import type { SourceAdapterResult } from "@/lib/ingestion/types";
 import { fetchRssItems } from "@/lib/ingestion/adapters/rss";
 
 const execFileAsync = promisify(execFile);
+const parser = new Parser();
 
 function parseCompactCount(value: string) {
   const cleaned = value.replace(/,/g, "").trim().toUpperCase();
@@ -32,7 +34,28 @@ export function normalizeXProfileImageUrl(value?: string | null) {
     return null;
   }
 
-  return value.replace(/_normal(?=\.(jpg|jpeg|png|webp|gif)(?:$|\?))/i, "_400x400");
+  let normalizedValue = value;
+
+  try {
+    const parsed = new URL(value);
+
+    if (
+      ["nitter.net", "www.nitter.net"].includes(parsed.hostname) &&
+      parsed.pathname.startsWith("/pic/")
+    ) {
+      const decodedPath = decodeURIComponent(parsed.pathname.slice("/pic/".length)).replace(/^\/+/, "");
+
+      if (decodedPath.startsWith("http://") || decodedPath.startsWith("https://")) {
+        normalizedValue = decodedPath;
+      } else if (decodedPath.startsWith("pbs.twimg.com/")) {
+        normalizedValue = `https://${decodedPath}`;
+      }
+    }
+  } catch {
+    normalizedValue = value;
+  }
+
+  return normalizedValue.replace(/_normal(?=\.(jpg|jpeg|png|webp|gif)(?:$|\?))/i, "_400x400");
 }
 
 function parseRelativeTimestamp(value: string) {
@@ -115,11 +138,21 @@ function withAuthorAvatar(result: SourceAdapterResult, authorAvatarUrl: string |
 
   return {
     ...result,
+    sourceAvatarUrl: result.sourceAvatarUrl ?? authorAvatarUrl,
     items: result.items.map((item) => ({
       ...item,
       authorAvatarUrl: item.authorAvatarUrl ?? authorAvatarUrl,
     })),
   };
+}
+
+async function fetchXAvatarFromRssFeed(rssUrl: string) {
+  try {
+    const feed = await parser.parseURL(rssUrl);
+    return normalizeXProfileImageUrl(feed.image?.url ?? null);
+  } catch {
+    return null;
+  }
 }
 
 export function parseTwStalkerHtml(source: SourceRecord, html: string): SourceAdapterResult {
@@ -224,6 +257,7 @@ export async function fetchXItems(source: SourceRecord) {
   if (typeof source.config.rssUrl === "string" && source.config.rssUrl.length > 0) {
     const handle = typeof source.config.handle === "string" ? source.config.handle.replace(/^@/, "") : null;
     const authorAvatarUrl =
+      (await fetchXAvatarFromRssFeed(source.config.rssUrl)) ??
       (handle ? await fetchXProfileImageFromApi(handle) : null) ??
       (typeof source.config.avatarUrl === "string" ? normalizeXProfileImageUrl(source.config.avatarUrl) : null);
 

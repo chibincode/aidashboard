@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useCallback, useEffect, useEffectEvent, useMemo, useState, useSyncExternalStore } from "react";
+import { startTransition, useCallback, useEffect, useEffectEvent, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { setItemReadAction, toggleSavedAction } from "@/actions/item-state";
 import { FeedDetailModal } from "@/components/dashboard/feed-detail-modal";
@@ -147,6 +147,7 @@ export function DashboardShell({
   const [feedCache, setFeedCache] = useState<Record<string, Pick<DashboardFeedState, "allItems" | "feedItems" | "pagination">>>(() => ({
     [createFeedCacheKey(initialFiltersKey, initialPage)]: initialFeedState,
   }));
+  const pendingOverviewKeyRef = useRef<string | null>(null);
   const [feedLoading, setFeedLoading] = useState(false);
   const [overviewLoading, setOverviewLoading] = useState(false);
   const [overviewRetrying, setOverviewRetrying] = useState(false);
@@ -179,6 +180,7 @@ export function DashboardShell({
   );
   const currentPage = useMemo(() => parseDashboardPageFromSearchParams(new URLSearchParams(currentSearch)), [currentSearch]);
   const currentFiltersKey = useMemo(() => serializeDashboardFilters(currentFilters) || "all", [currentFilters]);
+  const cachedOverview = overviewCache[currentFiltersKey];
   const lookupItems = useMemo(
     () =>
       mergeDashboardItems(feedState.allItems, overviewEvidenceCache[currentFiltersKey] ?? []).map((item) => {
@@ -387,14 +389,19 @@ export function DashboardShell({
       return;
     }
 
-    if (Object.prototype.hasOwnProperty.call(overviewCache, currentFiltersKey)) {
-      setOverview(overviewCache[currentFiltersKey] ?? null);
+    if (cachedOverview !== undefined) {
+      setOverview(cachedOverview ?? null);
       setOverviewLoading(false);
       setOverviewRetryMessage(null);
       return;
     }
 
+    if (pendingOverviewKeyRef.current === currentFiltersKey) {
+      return;
+    }
+
     const controller = new AbortController();
+    pendingOverviewKeyRef.current = currentFiltersKey;
     setOverviewLoading(true);
     setOverviewRetryMessage(null);
 
@@ -417,6 +424,10 @@ export function DashboardShell({
         }
       })
       .finally(() => {
+        if (pendingOverviewKeyRef.current === currentFiltersKey) {
+          pendingOverviewKeyRef.current = null;
+        }
+
         if (!controller.signal.aborted) {
           setOverviewLoading(false);
         }
@@ -425,7 +436,7 @@ export function DashboardShell({
     return () => {
       controller.abort();
     };
-  }, [currentFilters, currentFiltersKey, currentPage, initialFiltersKey, initialPage, overviewCache, requestOverview, snapshot.overview]);
+  }, [cachedOverview, currentFilters, currentFiltersKey, currentPage, initialFiltersKey, initialPage, requestOverview, snapshot.overview]);
 
   useEffect(() => {
     if (currentFiltersKey === initialFiltersKey && currentPage === initialPage) {

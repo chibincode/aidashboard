@@ -2,7 +2,7 @@ import Parser from "rss-parser";
 import { describe, expect, it, vi } from "vitest";
 import { fetchRssItems } from "@/lib/ingestion/adapters/rss";
 import { dedupeIncomingItems } from "@/lib/ingestion/dedupe";
-import { parseTwStalkerHtml } from "@/lib/ingestion/adapters/x";
+import { fetchXItems, normalizeXProfileImageUrl, parseTwStalkerHtml } from "@/lib/ingestion/adapters/x";
 import { parseWebsiteHtml } from "@/lib/ingestion/adapters/website";
 import { applyTagRules } from "@/lib/ingestion/rules";
 import { seedRules, seedSources, seedTags } from "@/lib/seed";
@@ -77,6 +77,28 @@ describe("ingestion adapters", () => {
     expect(deduped[0]?.canonicalUrl).toBe("https://x.com/ailoadboard/status/1001");
   });
 
+  it("normalizes nitter X status urls before deduplicating", () => {
+    const deduped = dedupeIncomingItems([
+      {
+        title: "Same launch",
+        excerpt: "A",
+        canonicalUrl: "https://nitter.net/AILoadboard/status/1001",
+        publishedAt: new Date(),
+        contentType: "post",
+      },
+      {
+        title: "Same launch",
+        excerpt: "B",
+        canonicalUrl: "https://x.com/ailoadboard/status/1001",
+        publishedAt: new Date(),
+        contentType: "post",
+      },
+    ]);
+
+    expect(deduped).toHaveLength(1);
+    expect(deduped[0]?.canonicalUrl).toBe("https://x.com/ailoadboard/status/1001");
+  });
+
   it("applies keyword rules to incoming items", () => {
     const item = {
       title: "Broker pricing update is now live",
@@ -131,6 +153,49 @@ describe("ingestion adapters", () => {
       title: "Another week of finding the best SaaS landing pages",
       excerpt: "",
     });
+  });
+
+  it("normalizes nitter image proxy urls into direct X profile image urls", () => {
+    expect(
+      normalizeXProfileImageUrl(
+        "https://nitter.net/pic/pbs.twimg.com%2Fprofile_images%2F2000755831135191040%2Fs6Pf_wjc_normal.jpg",
+      ),
+    ).toBe("https://pbs.twimg.com/profile_images/2000755831135191040/s6Pf_wjc_400x400.jpg");
+  });
+
+  it("hydrates X avatars from RSS feed metadata when the source falls back to RSS", async () => {
+    const source = seedSources.find((entry) => entry.id === "source_andy_hooke_x");
+    expect(source).toBeDefined();
+
+    const parseURL = vi
+      .spyOn(Parser.prototype, "parseURL")
+      .mockResolvedValueOnce({
+        image: {
+          url: "https://nitter.net/pic/pbs.twimg.com%2Fprofile_images%2F1546442126543785984%2FrPOmKAIB_normal.jpg",
+        },
+      } as never)
+      .mockResolvedValueOnce({
+        items: [
+          {
+            title: "Another week of finding the best SaaS landing pages",
+            link: "https://nitter.net/andy_hooke/status/1",
+            isoDate: "2026-03-09T15:09:31.000Z",
+            creator: "@andy_hooke",
+          },
+        ],
+      } as never);
+
+    const result = await fetchXItems(source!);
+
+    expect(result.sourceAvatarUrl).toBe(
+      "https://pbs.twimg.com/profile_images/1546442126543785984/rPOmKAIB_400x400.jpg",
+    );
+    expect(result.items[0]).toMatchObject({
+      authorAvatarUrl: "https://pbs.twimg.com/profile_images/1546442126543785984/rPOmKAIB_400x400.jpg",
+      canonicalUrl: "https://nitter.net/andy_hooke/status/1",
+    });
+
+    parseURL.mockRestore();
   });
 
   it("parses A1 Gallery homepage cards into image-backed website inspiration items", () => {

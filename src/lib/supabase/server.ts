@@ -2,6 +2,19 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { env } from "@/lib/env";
 
+export function hasSupabaseAuthCookie(
+  cookiesToCheck: Array<{
+    name: string;
+  }>,
+) {
+  return cookiesToCheck.some(({ name }) => name.startsWith("sb-") && name.includes("-auth-token"));
+}
+
+export async function hasSupabaseAuthSessionCookie() {
+  const cookieStore = await cookies();
+  return hasSupabaseAuthCookie(cookieStore.getAll());
+}
+
 function getSupabaseConfig() {
   if (!env.NEXT_PUBLIC_SUPABASE_URL || !env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY) {
     throw new Error("Supabase Auth is not configured.");
